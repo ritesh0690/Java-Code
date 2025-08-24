@@ -1,0 +1,533 @@
+/**
+ * @Description Apex controller for managing Beneficial Owner records.
+ * Handles fetching Applicant and Beneficial Owner data,
+ * and creating new Beneficial Owner records with validations.
+ * Adheres to common PMD best practices.
+ * @Author Vaibhav Nikam
+ */
+public with sharing class BeneficialOwnerController2 {
+
+    // --- Constants for common values and error messages (PMD: HardcodedValues) ---
+    private static final String PRIMARY_APPLICANT = 'Applicant';
+    private static final String CO_APPLICANT = 'Co-applicant';
+    private static final String CONSTITUTION_GOVERNMENT = 'Government';
+    private static final String CONSTITUTION_PROPFERM = 'PROPFERM';
+    private static final String CONSTITUTION_PRTFERM = 'PRTFERM';
+    private static final String CONSTITUTION_PUBLTDCO = 'PUBLTDCO';
+    private static final String CONSTITUTION_TRUST = 'TRUST';
+    private static final String CONSTITUTION_PRIVATE = 'PVTLTDCO';
+    private static final String CONSTITUTION_LTDLIAPR = 'LTDLIAPR';
+    private static final String CONSTITUTION_SOCIETY = 'SOCIETY';
+    private static final String CONSTITUTION_AOP = 'Association of Persons (AOP)';
+ 
+
+
+
+    private static final String OVD_REQUIRED_VALUE = 'OVD Required'; // Example value for OVD_Individual_BO__c that requires a document
+
+    private static final String BO_LIMIT_ERROR = 'Maximum of 10 Beneficial Owner records allowed per Opportunity.';
+    private static final String PERCENTAGE_MIN_ERROR = 'Percentage of Holding must be at least 10% for each Beneficial Owner.';
+    private static final String DUPLICATE_PAN_ERROR = 'Duplicate PAN Number found for a Beneficial Owner under this Loan. Please check existing records.';
+    private static final String PERCENTAGE_TOTAL_ERROR_PREFIX = 'Total Percentage of Holding for all Beneficial Owners cannot exceed 100%. Current total with new BO: ';
+    private static final String NO_APPLICANT_SELECTED_ERROR = 'Please select an Applicant for the Beneficial Owner.';
+    private static final String UNRELATED_APPLICANT_ERROR = 'Selected Applicant is not related to the current Opportunity or is not a Primary/Co-applicant.';
+    private static final String INVALID_CONSTITUTION_ERROR = 'Beneficial Owner can only be created for Applicants with this Constitution';
+    private static final String OVD_DOCUMENT_MISSING_ERROR = 'Document Reference is required when OVD Individual BO is selected as \'' + OVD_REQUIRED_VALUE + '\'.';
+
+    private static final Integer MAX_BO_RECORDS = 10;
+    private static final Decimal MIN_PERCENTAGE_HOLDING = 10;
+    private static final Decimal MAX_TOTAL_PERCENTAGE_HOLDING = 100;
+
+
+    /**
+     * @Description Wrapper class to hold Applicant and Beneficial Owner data for UI.
+     * This class facilitates passing multiple related lists and aggregate data to the LWC.
+     */
+    public class BeneficialOwnerFormData {
+        @AuraEnabled public Applicant__c applicant;
+        @AuraEnabled public Beneficial_Owner__c beneficialOwner;
+        @AuraEnabled public List<Beneficial_Owner__c> existingBeneficialOwners;
+        @AuraEnabled public List<Applicant__c> primaryApplicants;
+        @AuraEnabled public List<Applicant__c> coApplicants;
+        @AuraEnabled public List<Applicant__c> guarantors;
+        @AuraEnabled public Decimal totalHoldingPercentage;
+        @AuraEnabled public Integer currentBOCount;
+
+        /**
+         * @Description Constructor for BeneficialOwnerFormData.
+         * Initializes all list and SObject properties to avoid null pointer exceptions.
+         */
+        public BeneficialOwnerFormData() {
+            this.applicant = new Applicant__c();
+            this.beneficialOwner = new Beneficial_Owner__c();
+            this.existingBeneficialOwners = new List<Beneficial_Owner__c>();
+            this.primaryApplicants = new List<Applicant__c>();
+            this.coApplicants = new List<Applicant__c>();
+            this.guarantors = new List<Applicant__c>();
+            this.totalHoldingPercentage = 0.0;
+            this.currentBOCount = 0;
+        }
+    }
+
+    /**
+     * @Description Initializes the form data by fetching existing Applicants and Beneficial Owners for the given Opportunity.
+     * It categorizes applicants into primary and co-applicants based on Loan_Relation__c.
+     * Adheres to "Query Considered Unsafe" by avoiding SOQL in loops and querying relevant fields.
+     *
+     * @param opportunityId The ID of the current Opportunity record.
+     * @return BeneficialOwnerFormData object containing all relevant data for the LWC.
+     */
+   @AuraEnabled(cacheable=true)
+    public static BeneficialOwnerFormData getInitialFormData(Id opportunityId) {
+        BeneficialOwnerFormData formData = new BeneficialOwnerFormData();
+        List<String> relationTypes = new List<String>{'Applicant', 'Co-Applicant', 'Guarantor'};
+
+        // Fetch Applicants related to the Opportunity, filtering by relevant Loan_Relation__c types
+        // (PMD: QueryConsideredUnsafe - one query for all relevant applicants)
+        List<Applicant__c> applicants = [
+        SELECT
+            Id, Name, Loan__c, Loan_Relation__c, Constitution__c,
+            First_Name__c, Middle_Name__c, Last_Name__c, DOB_DOI__c, Spouse_Name__c,
+            Company_Name__c, Customer_Type__c, Designation__c, Date_of_Incorporation__c,
+            PAN_Status__c, PAN_Number__c, Full_Name__c, OVD_Status__c, Institution_Name__c
+        FROM Applicant__c
+        WHERE Loan__c = :opportunityId
+        AND Loan_Relation__c IN :relationTypes
+    ];
+
+        
+        system.debug('applicants: @@'+applicants);
+
+        Set<Id> applicantIds = new Set<Id>();
+        for (Applicant__c app : applicants) {
+            applicantIds.add(app.Id);
+            if (app.Loan_Relation__c == PRIMARY_APPLICANT) {
+                formData.primaryApplicants.add(app);
+            } else if (app.Loan_Relation__c == CO_APPLICANT) {
+                formData.coApplicants.add(app);
+            }
+            else{
+                formData.guarantors.add(app);
+            }
+        }
+
+        // Fetch Beneficial Owners related to these Applicants
+        // (PMD: QueryConsideredUnsafe - one query for all relevant BOs)
+        if (!applicantIds.isEmpty()) {
+            formData.existingBeneficialOwners = [
+                SELECT
+                    Id, Name, Applicant__c, Applicant__r.Name,Applicant__r.Full_Name__c,Applicant__r.DOB_DOI__c,Applicant__r.Institution_Name__c, Full_Name__c,
+                    First_Name__c, Middle_Name__c, Last_Name__c, DOB_DOI__c, Spouse_Name__c,
+                    Company_Name__c, Customer_Type__c,OVD_Individual_BO__c,OVD_Non_Individual_BO__c, Designation__c, Date_of_Incorporation__c,
+                    PAN_Status__c, PAN_Number__c, Percentage_of_Holding__c,Institution_Name__c,
+                    OVD_Status__c, DocumentUpload__c, Aadhar_Number__c, Nationality__c, Office_Business_Address__c,Date_of_Incorporation_DOB__c,DIN__c
+                FROM Beneficial_Owner__c
+                WHERE Applicant__c IN :applicantIds order by createdDate desc
+            ];
+
+            // Calculate total holding percentage and current BO count for validation
+            for (Beneficial_Owner__c bo : formData.existingBeneficialOwners) {
+                if (bo.Percentage_of_Holding__c != null) {
+                    formData.totalHoldingPercentage += bo.Percentage_of_Holding__c;
+                }
+            }
+            formData.currentBOCount = formData.existingBeneficialOwners.size();
+        }
+
+        return formData;
+    }
+
+    /**
+     * @Description Fetches details of a specific Applicant for auto-population into the BO creation form.
+     *
+     * @param applicantId The ID of the Applicant record.
+     * @return Applicant__c record with relevant fields.
+     */
+    @AuraEnabled(cacheable=true)
+    public static Applicant__c getApplicantDetails(Id applicantId) {
+        return [
+            SELECT
+                Id, Name, Loan_Relation__c, Constitution__c,
+                First_Name__c, Middle_Name__c, Last_Name__c, DOB_DOI__c, Spouse_Name__c, Aadhaar_No_last_4_digits__c, Nationality__c,
+                Company_Name__c, Customer_Type__c, Designation__c, Date_of_Incorporation__c, Office_Business_Address__c, 
+                PAN_Status__c, PAN_Number__c, Aadhaar_Seeding_Status__c,Name_Verification_Status__c, Date_Of_Birth_Verification_Status__c, 
+                Holding_in_the_Corporate_Firm__c,OVD_Status__c,Institution_Name__c,Aadhar_Pan_Linking__c,Aadhar_PAN_Match__c
+            FROM Applicant__c
+            WHERE Id = :applicantId
+            LIMIT 1
+        ];
+    }
+
+    /**
+     * @Description Inserts a new Beneficial Owner record and performs comprehensive validations.
+     * Adheres to "DML Considered Unsafe" by performing DML outside loops.
+     * Handles specific business logic validations.
+     *
+     * @param newBo The Beneficial_Owner__c record to insert.
+     * @param opportunityId The ID of the current Opportunity (used for aggregate validations).
+     * @return The newly inserted Beneficial_Owner__c record with its Id.
+     * @throws AuraHandledException if any validation fails or DML error occurs.
+     */
+    @AuraEnabled
+    public static Beneficial_Owner__c createBeneficialOwner(Beneficial_Owner__c newBo, Id opportunityId) {       
+
+        // Fetch the selected Applicant's details to perform Constitution validation
+        Applicant__c selectedApplicant = [
+          SELECT Id, Loan__c, Constitution__c
+          FROM Applicant__c
+           WHERE Id = :newBo.Applicant__c
+           LIMIT 1
+        ];
+
+        // //Not needed for demo
+        // // Validation 2: Constitution Check (PMD: HardcodedValues)
+        // // // if (selectedApplicant.Constitution__c != CONSTITUTION_GOVERNMENT ||
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_PROPFERM ||   
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_PRTFERM  ||
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_PUBLTDCO || 
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_TRUST || 
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_PRIVATE   ||  
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_SOCIETY || 
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_LTDLIAPR || 
+        // //      selectedApplicant.Constitution__c != CONSTITUTION_AOP ) {
+        // //     throw new AuraHandledException(INVALID_CONSTITUTION_ERROR);
+        // // }
+        
+
+        // // Fetch existing BOs related to the Opportunity's Applicants for aggregate validations
+        // // (PMD: QueryConsideredUnsafe - one query for existing BOs)
+        List<Beneficial_Owner__c> existingBOs = [
+             SELECT Percentage_of_Holding__c, PAN_Number__c
+             FROM Beneficial_Owner__c
+            WHERE Applicant__c IN : new List<Id>{newBo.Applicant__c} //primary app, added bu hariharan
+         ];
+
+        // // Validation 4: Maximum 10 BO records check per Opportunity
+        if (existingBOs.size() >= MAX_BO_RECORDS) {
+            throw new AuraHandledException(BO_LIMIT_ERROR);
+        }
+
+        // // Validation 5: Percentage of Holding (Min 10% for individual record)
+        // // if (newBo.Percentage_of_Holding__c == null || newBo.Percentage_of_Holding__c < MIN_PERCENTAGE_HOLDING) {
+        // //    throw new AuraHandledException(PERCENTAGE_MIN_ERROR);
+        // // }
+
+        // // Validation 6: PAN Number Duplicate Check
+        if (String.isNotBlank(newBo.PAN_Number__c)) {
+         for (Beneficial_Owner__c existingBo : existingBOs) {
+        //         // Case-insensitive comparison for PAN numbers
+         if (newBo.PAN_Number__c.equalsIgnoreCase(existingBo.PAN_Number__c)) {
+          throw new AuraHandledException(DUPLICATE_PAN_ERROR);
+              }
+         }
+        }
+
+
+        // //We will do this later
+        // // // Validation 7: OVD Document Required Check
+        // // // Only applies to Individual BOs and if OVD_Individual_BO__c matches a specific value
+        // // if (newBo.Customer_Type__c == 'Individual' &&
+        // //     newBo.OVD_Status__c == OVD_REQUIRED_VALUE &&
+        // //     String.isBlank(newBo.DocumentUpload__c)) { // Assuming Document_Reference__c is the field for document reference
+        // //     throw new AuraHandledException(OVD_DOCUMENT_MISSING_ERROR);
+        // // }
+
+        // // Validation 8: Total Percentage of Holding (Sum of all BOs for this Opportunity's Applicants)
+        Decimal currentTotalHolding = 0.0; // PMD: Explicit data type for Decimal
+        for (Beneficial_Owner__c existingBo : existingBOs) {
+        if (existingBo.Percentage_of_Holding__c != null) {
+                currentTotalHolding += existingBo.Percentage_of_Holding__c;
+        }
+        }
+        System.debug('Percentageof Holding' +currentTotalHolding);
+        System.debug('Percentage of Holding'+newBo.Percentage_of_Holding__c);
+        if(newBo.Percentage_of_Holding__c !=null){  
+                    System.debug('This is if condition'+newBo.Percentage_of_Holding__c); 
+        if ((currentTotalHolding + newBo.Percentage_of_Holding__c) > MAX_TOTAL_PERCENTAGE_HOLDING) {
+           throw new AuraHandledException(PERCENTAGE_TOTAL_ERROR_PREFIX + (currentTotalHolding + newBo.Percentage_of_Holding__c) + '%');
+        }
+        }
+
+        // Attempt to insert the new Beneficial Owner record (PMD: DmlConsideredUnsafe - DML outside loop)
+        try {
+            insert newBo;
+            return newBo; // Return the newly inserted record (with Id)
+        } catch (DmlException e) {
+            // Catch and re-throw DML exceptions as AuraHandledException for LWC
+            // (PMD: EmptyCatchBlocks - provide meaningful error message)
+            throw new AuraHandledException('Error creating Beneficial Owner: ' + e.getMessage());
+        }
+    }
+
+    // @AuraEnabled
+    // public static string upsertBoRecord(Beneficial_Owner__c newBo) {       
+    //     try{
+    //     Applicant__c selectedApplicant = [
+    //       SELECT Id, Loan__c, Constitution__c
+    //       FROM Applicant__c
+    //        WHERE Id = :newBo.Applicant__c
+    //        LIMIT 1
+    //     ];
+
+    //     //Not needed for demo
+    //     // Validation 2: Constitution Check (PMD: HardcodedValues)
+    //     //  if (selectedApplicant.Constitution__c != CONSTITUTION_GOVERNMENT ||
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_PROPFERM ||   
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_PRTFERM  ||
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_PUBLTDCO || 
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_TRUST || 
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_PRIVATE   ||  
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_SOCIETY || 
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_LTDLIAPR || 
+    //     //      selectedApplicant.Constitution__c != CONSTITUTION_AOP ) {
+    //     //     throw new AuraHandledException(INVALID_CONSTITUTION_ERROR);
+    //     // }
+        
+
+    //     // Fetch existing BOs related to the Opportunity's Applicants for aggregate validations
+    //     // (PMD: QueryConsideredUnsafe - one query for existing BOs)
+    //     List<Beneficial_Owner__c> existingBOs = [
+    //          SELECT Percentage_of_Holding__c, PAN_Number__c
+    //          FROM Beneficial_Owner__c
+    //         WHERE Applicant__c IN : new List<Id>{newBo.Applicant__c} //primary app, added bu hariharan
+    //      ];
+
+    //     // Validation 4: Maximum 10 BO records check per Opportunity
+    //     // if (existingBOs.size() >= MAX_BO_RECORDS) {
+    //     //     System.debug('MAX_BO_RECORDS' +existingBOs.size());
+    //     //     throw new AuraHandledException(BO_LIMIT_ERROR);
+    //     // }
+
+    //     // Validation 5: Percentage of Holding (Min 10% for individual record)
+    //     // if (newBo.Percentage_of_Holding__c == null || newBo.Percentage_of_Holding__c < MIN_PERCENTAGE_HOLDING) {
+    //     //    throw new AuraHandledException(PERCENTAGE_MIN_ERROR);
+    //     // }
+
+    //     // Validation 6: PAN Number Duplicate Check
+    //     // if (String.isNotBlank(newBo.PAN_Number__c)) {
+    //     //  for (Beneficial_Owner__c existingBo : existingBOs) {
+    //     // //         // Case-insensitive comparison for PAN numbers
+    //     //  if (newBo.PAN_Number__c.equalsIgnoreCase(existingBo.PAN_Number__c)) {
+    //     //      System.debug('PAN Duplicate'+newBo.PAN_Number__c);
+    //     //   throw new AuraHandledException(DUPLICATE_PAN_ERROR);
+    //     //       }
+    //     //  }
+    //     // }
+
+
+    //     //We will do this later
+    //     // // Validation 7: OVD Document Required Check
+    //     // // Only applies to Individual BOs and if OVD_Individual_BO__c matches a specific value
+    //     // if (newBo.Customer_Type__c == 'Individual' &&
+    //     //     newBo.OVD_Status__c == OVD_REQUIRED_VALUE &&
+    //     //     String.isBlank(newBo.DocumentUpload__c)) { // Assuming Document_Reference__c is the field for document reference
+    //     //     throw new AuraHandledException(OVD_DOCUMENT_MISSING_ERROR);
+    //     // }
+
+    //     // Validation 8: Total Percentage of Holding (Sum of all BOs for this Opportunity's Applicants)
+    //     Decimal currentTotalHolding = 0.0; // PMD: Explicit data type for Decimal
+    //     for (Beneficial_Owner__c existingBo : existingBOs) {
+    //     if (existingBo.Percentage_of_Holding__c != null) {
+    //         System.debug('Existing BO' +currentTotalHolding);
+    //             currentTotalHolding += existingBo.Percentage_of_Holding__c;
+    //     }
+    //     }
+    //     System.debug('Percentageof Holding' +currentTotalHolding);
+    //     System.debug('Percentage of Holding'+newBo.Percentage_of_Holding__c);
+    //     if(newBo.Percentage_of_Holding__c !=null){  
+    //                 System.debug('This is if condition'+newBo.Percentage_of_Holding__c); 
+    //     if ((currentTotalHolding + newBo.Percentage_of_Holding__c) > MAX_TOTAL_PERCENTAGE_HOLDING) {
+    //        throw new AuraHandledException(PERCENTAGE_TOTAL_ERROR_PREFIX + (currentTotalHolding + newBo.Percentage_of_Holding__c) + '%');
+    //     }
+    //     }
+    //          upsert newBo; 
+    //          return newBo.Id;
+    //     }catch(DmlException e){
+    //         throw new AuraHandledException('Error creating Beneficial Owner: ' + e.getMessage());
+    //     }       
+        
+    // }
+
+    @AuraEnabled
+    public static String upsertBoRecord(Beneficial_Owner__c newBo) {
+        try {
+            if (newBo == null) {
+                throw new AuraHandledException('No Beneficial Owner data was provided.');
+            }
+            if (newBo.Applicant__c == null) {
+                throw new AuraHandledException('Applicant Id is missing on Beneficial Owner.');
+            }
+
+            List<Applicant__c> applicants = [
+                SELECT Id, Loan__c, Constitution__c
+                FROM Applicant__c
+                WHERE Id = :newBo.Applicant__c
+                LIMIT 1
+            ];
+            if (applicants.isEmpty()) {
+                throw new AuraHandledException('No Applicant found for Id: ' + newBo.Applicant__c);
+            }
+
+            List<Beneficial_Owner__c> existingBOs = [
+                SELECT Percentage_of_Holding__c, PAN_Number__c
+                FROM Beneficial_Owner__c
+                WHERE Applicant__c = :newBo.Applicant__c
+                AND Id != :newBo.Id
+            ];
+
+            Decimal currentTotalHolding = 0.0;
+            for (Beneficial_Owner__c existingBo : existingBOs) {
+                if (existingBo.Percentage_of_Holding__c != null) {
+                    currentTotalHolding += existingBo.Percentage_of_Holding__c;
+                }
+            }
+
+            if (newBo.Percentage_of_Holding__c != null) {
+                Decimal newTotal = currentTotalHolding + newBo.Percentage_of_Holding__c;
+                if (newTotal > 100) {
+                    throw new AuraHandledException(
+                        'Total Percentage of Holding cannot exceed 100%. ' +
+                        'Current Total = ' + currentTotalHolding +
+                        ', New = ' + newBo.Percentage_of_Holding__c
+                    );
+                }
+            }
+
+            upsert newBo;
+            return newBo.Id;
+
+        } catch (AuraHandledException e) {
+            // Pass custom error back
+            throw e;
+        } catch (DmlException e) {
+            throw new AuraHandledException('Error saving Beneficial Owner: ' + e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Unexpected error: ' + e.getMessage());
+        }
+    }
+
+    //Added by Hariharan
+    //1
+    @AuraEnabled
+    public static string createIntegrationChecklistRecordForAadharPanLinkage(Id recordId){
+        system.debug('createIntegrationChecklistRecordForAadharPanLinkage');
+        system.debug('recordId'+recordId);
+
+        Beneficial_Owner__c beneficialOwner =[SELECT Id, Applicant__c, Loan_Application__r.StageName, Loan_Application__c	 FROM Beneficial_Owner__c WHERE Id=:recordId];
+
+        Integration_Master__c master =new Integration_Master__c();
+        
+        master = IntegrationSelector.getMasterByType(Constants.DATA_SUTRAM_PAN_AADHAR);           
+               
+        Integration_Checklist__c intcheck = new Integration_Checklist__c();
+        intcheck.Beneficial_Owner__c = recordId;
+        intcheck.Applicant__c = beneficialOwner.Applicant__c;
+        intcheck.Loan__c = beneficialOwner.Loan_Application__c; 
+        intcheck.Status__c = Constants.INTEGRATION_CHECKLIST_PENDING;
+        intcheck.Integration_Master__c = master.Id;
+        intcheck.Is_Request_In_Attachment__c = false;
+        insert intcheck;
+
+        system.debug('intcheck.Id '+ intcheck.Id);
+        return intcheck.Id;
+    }
+
+    //Added by Hariharan
+    //2
+    @AuraEnabled
+    public static string ValidateAndFetchAccessToken(Id checklistId){
+          system.debug('requesting auth token');
+
+        string result;
+         List<Integration_Checklist__c> integrationChecklist = [SELECT Id, Integration_Master__c, Beneficial_Owner__c, Applicant__c, Applicant__r.Loan__c, Loan__c, Integration_Master__r.OAuth2_0_API__c, Integration_Master__r.Type__c FROM Integration_Checklist__c WHERE Id =: ChecklistId LIMIT 1];
+
+        if(integrationChecklist[0].Integration_Master__r.OAuth2_0_API__c == true && OAuth2TokenHandler.validateOAuthToken() == Constants.TOKEN_EXPIRED_STATUS){
+            system.debug('expired');
+               result = OAuth2TokenHandler.createBOIntegrationChecklistRecordForOauthToken(integrationChecklist[0].Beneficial_Owner__c);
+        }    
+        return result;    
+    }
+    
+
+    //Added by Hariharan
+    //3
+    @AuraEnabled
+    public static String verifyAadharPANLinkage(string pan, string beneficialOwnerId){
+         system.debug('executing main callout');
+        Beneficial_Owner__c beneficialOwnerRecord = BeneficialOwnerSelector.getBeneficialOwnerById(beneficialOwnerId);
+
+        ///Add Integration Master and Integration Checklist to wrapper 
+        CommonCalloutEventPublisher.AutoIntegrationsInputWrapper inputWrapper = IntegrationUtility.createInputWrapperForBeneficialOwner(beneficialOwnerId, Constants.DATA_SUTRAM_PAN_AADHAR);
+
+         if(inputWrapper == null){
+                return null;
+        }
+        IntegrationUtility utility = new IntegrationUtility();     
+
+        //Creating Request Body from the Apex class mentioned in Int. Master Record and storing it in wrapper
+        IntegrationUtility.HTTPRequestWrapper httpRequestWrapper = utility.constructRequest(inputWrapper);
+
+        //Adding the endpoint, method, content-type, Int. Master and Int. Checklist and storing in wrapper - comments added by Hariharan
+        IntegrationUtility.RequestWrapper requestWrapper = IntegrationUtility.createRequestWrapper(inputWrapper, Constants.POST_METHOD);
+        requestWrapper.request = httpRequestWrapper.request;
+        system.debug('requestWrapper.request: '+ requestWrapper.request);
+
+        //Set default Header for request
+        requestWrapper.headersMap = utility.getDefaultHeaders(inputWrapper.integrationChecklistRecord.Id, inputWrapper.integrationMasterRecord);
+        requestWrapper.headersMap.putAll(generateAdditionalHeadersForPanAadharLinkage());
+
+        //Call initiateCallout method for API callout and stored the ResponseWrapper
+        IntegrationUtility.ResponseWrapper response = utility.initiateCallout(requestWrapper);
+        system.debug('got response at BO controller 2');
+
+        HttpResponse responseBody = response.responsebody;    
+        Integer statusCode = response.statusCode; 
+
+        //Badgateway
+        if(statusCode == 502){
+            DataSutramPanAadharHandler.ResponseWrapperBadGateWay responseWrapper = (DataSutramPanAadharHandler.ResponseWrapperBadGateWay) JSON.deserialize(responseBody.getBody(), DataSutramPanAadharHandler.ResponseWrapperBadGateWay.class);
+
+            DataSutramPanAadharHandler.callbackService(new List<Integration_Checklist__c>{response.checklistRecord}, null);
+            
+            system.debug('response RETURNED---> Bad Gate Way');
+
+            return JSON.serialize(responseWrapper);
+        }else{
+            DataSutramPanAadharHandler.ResponseWrapper responseWrapper = (DataSutramPanAadharHandler.ResponseWrapper) JSON.deserialize(responseBody.getBody(), DataSutramPanAadharHandler.ResponseWrapper.class);
+
+            DataSutramPanAadharHandler.callbackService(new List<Integration_Checklist__c>{response.checklistRecord}, null);
+
+            system.debug('response RETURNED');
+
+            return JSON.serialize(responseWrapper);
+        }                           
+
+    }
+
+    public static Map<string, string> generateAdditionalHeadersForPanAadharLinkage(){
+        Map<string, string> mapOfHeaders = new Map<string, string>{'SourceName'=>'slospl'}; 
+        return mapOfHeaders;
+    }
+
+    //Pass the checklist Id of the record
+    // @AuraEnabled
+    // public static string getAadharPANPdf(Id checklistId){
+
+    //     string result;
+    //     List<Integration_Checklist__c> integrationChecklist = [SELECT Id, Integration_Master__c, Beneficial_Owner__c, Applicant__c, Applicant__r.Loan__c, Loan__c, Integration_Master__r.OAuth2_0_API__c, Integration_Master__r.Type__c FROM Integration_Checklist__c WHERE Id =: ChecklistId LIMIT 1];
+
+    //     if(integrationChecklist[0].Integration_Master__r.OAuth2_0_API__c == true && OAuth2TokenHandler.validateOAuthToken() == Constants.TOKEN_EXPIRED_STATUS){
+    //            //result = DataSutramPanAadharPDFHandler.createIntegrationChecklistRecordForPanAadharLinkagePDF(integrationChecklist[0].Beneficial_Owner__c);
+    //     }    
+    //     return result;    
+    //}
+
+    @AuraEnabled
+    public static Beneficial_Owner__c updateBeneficialOwnerRecordOnEdit(String beneficialOwner) {
+        Beneficial_Owner__c bO = (Beneficial_Owner__c)JSON.deserialize(beneficialOwner,Beneficial_Owner__c.class);
+        update bO;
+        return bO;
+    }
+   
+    //this is the updated code    
+}
