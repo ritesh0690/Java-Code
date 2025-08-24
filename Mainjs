@@ -1,0 +1,1863 @@
+import { LightningElement, api, wire, track } from 'lwc';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import getInitialFormData from '@salesforce/apex/BeneficialOwnerController2.getInitialFormData';
+import getApplicantDetails from '@salesforce/apex/BeneficialOwnerController2.getApplicantDetails';
+import createBeneficialOwner from '@salesforce/apex/BeneficialOwnerController2.createBeneficialOwner';
+import { getRecord } from 'lightning/uiRecordApi';
+import LOAN from "@salesforce/schema/Applicant__c.Loan__c";
+// Added by Vaibhav for Row Edit
+import { NavigationMixin } from 'lightning/navigation';
+
+//Added by Hariharan
+
+import ID_FIELD from "@salesforce/schema/Beneficial_Owner__c.Id";
+import upsertBoRecord from '@salesforce/apex/BeneficialOwnerController2.upsertBoRecord';
+import updateBeneficialOwnerRecordOnEdit from '@salesforce/apex/BeneficialOwnerController2.updateBeneficialOwnerRecordOnEdit';
+import createBONsdlPanDocument from '@salesforce/apex/panDocumentChecklistController.createBONsdlPanDocument';
+
+//Pan Aadhar 
+import createIntegrationChecklistRecordForAadharPanLinkage from '@salesforce/apex/BeneficialOwnerController2.createIntegrationChecklistRecordForAadharPanLinkage';
+import ValidateAndFetchAccessToken from '@salesforce/apex/BeneficialOwnerController2.ValidateAndFetchAccessToken';
+import verifyAadharPANLinkage from '@salesforce/apex/BeneficialOwnerController2.verifyAadharPANLinkage';
+import createBOPanAadharDocument from '@salesforce/apex/PanAadharDocumentChecklistController.createBOPanAadharDocument';
+
+
+
+import createIntegrationChecklistRecordforBO from '@salesforce/apex/PanValidationController.createIntegrationChecklistRecordforBO';
+import verifyPanForBO from '@salesforce/apex/PanValidationController.verifyPanForBO';
+import getBeneficialOwnerById from '@salesforce/apex/BeneficialOwnerSelector.getBeneficialOwnerById';
+
+import { refreshApex } from '@salesforce/apex';
+    // myComponent.js
+
+
+// Define constants for OVD values to match Apex
+// const OVD_REQUIRED_VALUE = 'OVD'; // Added by Vaibhav Date -19/07/2025 CLLXP-445
+const APPLICANT_FIELD = [LOAN];
+
+//Define actions in Datatable
+const actions = [
+    { label: 'Edit', name: 'edit' },
+    { label: 'View', name: 'view' },
+];
+
+// Column definitions for Applicant table
+const APPLICANT_COLUMNS = [
+    {
+        label: 'Name', fieldName: 'ApplicantNameLink', type: 'url',
+        typeAttributes: { label: { fieldName: 'Name' }, target: '_blank' }, sortable: true
+    },
+    { label: 'Loan Relation', fieldName: 'Loan_Relation__c', type: 'text' },
+    { label: 'Date of Birth / Inc.', fieldName: 'DOB_DOI_Display', type: 'date', typeAttributes: { day: '2-digit', month: '2-digit', year: 'numeric' } },
+    { label: 'PAN Number', fieldName: 'PAN_Number__c', type: 'text' },
+    {
+        type: 'action',
+        typeAttributes: { rowActions: actions },
+    },
+];
+
+// Column definitions for Beneficial Owner table
+const BENEFICIAL_OWNER_COLUMNS = [
+    { label: 'Full Name/Institution Name', fieldName: 'ApplicantFullName', type: 'text', sortable: true },
+    { label: 'Type', fieldName: 'Customer_Type__c', type: 'text' },
+    {
+        label: 'Applicant', fieldName: 'ApplicantNameLink', type: 'url',
+        typeAttributes: { label: { fieldName: 'ApplicantName' }, target: '_blank' }
+    },
+    { label: 'PAN Number', fieldName: 'PAN_Number__c', type: 'text' },
+    { label: 'Holding %', fieldName: 'Percentage_of_Holding__c', type: 'text' },
+    { label: 'DOB / DOI', fieldName: 'BODateDisplay', type: 'date', typeAttributes: { day: '2-digit', month: '2-digit', year: 'numeric' } },
+    //  { label: 'OVD Type', fieldName: 'OVD_Status__c', type: 'text' },
+    //  { label: 'Document Ref', fieldName: 'DocumentUpload__c', type: 'text' },
+    { label: 'Adhar Number', fieldName: 'Aadhar_Number__c', type: 'text' },
+    { label: 'Nationality', fieldName: 'Nationality__c', type: 'text' },
+    { label: 'Address/Office Address', fieldName: 'Office_Business_Address__c', type: 'text' },
+    // { label: 'Party to Agreement (BO)', fieldName: 'Party_to_Agreement__c', type: 'text' },
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445
+    {
+        type: 'action',
+        typeAttributes: {
+            rowActions: actions,
+            menuAlignment: 'right'
+        },
+    },
+];
+
+/**
+ * @Description LWC component for managing Beneficial Owner records on an Applicant Record Page.
+ * Handles fetching Applicant and Beneficial Owner data related to the Applicant's Loan/Opportunity.
+ * Allows creating new BO records with conditional UI based on "Party to Agreement".
+ */
+export default class beneficialOwnerDetailScreen extends NavigationMixin(LightningElement) {
+@track displayBeneficialOwner = false;
+@track BeneficialDetails;
+    @api recordId; // Automatically receives the current Applicant ID when placed on an Applicant record page
+
+    //Added by Hariharan
+    disableApplicantSelection = true;
+    disableCustomerTypeSelection = true;
+    loanApplicationId;
+    beneficialOwnerId;
+    loading = false;
+
+    //Common BO fields
+    beneficialOwnerRecord;
+    disableAllFields = false;
+
+    //Individual BO fields
+    firstName;
+    middleName;
+    lastName;
+    dateOfBirth;
+    spouseName;
+    ovdIndividualBO;
+    aadharNumber;
+    nationality;
+    officeAddress;
+    panValue;
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445
+    ovdAppIndividualBO;
+    ovdNonIndividualBO;
+    @track customerType;
+    @track partyToAgreement;
+    percentageOfHolding;
+
+    //
+    @track selectedBoId;
+    @track showCustomEditModal = false;
+
+
+    //Non-individual BO fields
+    institutionName;
+    designation;
+    dateOfIncorporation;
+
+    //Pan API fields
+    @track disablePanAfterVerified = false;
+    @track aadhaarSeedingStatus;
+    @track panStatusApi;
+    @track dobVerificationStatus;
+    @track nameVerificationStatus;
+    @track panResponseObserved;
+    @track panStatus;
+    @track panResponseObserved = false;
+    @track disablePanButton = true;
+    @track verifyPanButtonClicked = false;
+
+    //Pan Aadhar API fields
+    @track disablePanAadharButton = false;
+    @track disableAadharAfterVerified = false;
+    @track panAadharLinkedStatus;
+    @track aadharLinkageResponseObserved;
+    //
+
+    selectedConstitutionType;
+
+    isError = false;
+    isApiDown = false;
+    openPanDetailsModal = false;
+    showBeneficialOwnerType = true;
+
+    @track panVerifiedAttributes = { dobVerified: false, nameVerified: false, isPanVerified: false, institutionNameVerified: false };
+    //
+
+    // Data properties for displaying existing records in lightning-datatable
+    primaryApplicantData = [];
+    coApplicantData = [];
+    guarantorsData=[];
+    @track beneficialOwnerData = [];
+    @track applicantResult;
+
+    // Column definitions for the lightning-datatable components
+    applicantColumns = APPLICANT_COLUMNS;
+    beneficialOwnerColumns = BENEFICIAL_OWNER_COLUMNS;
+
+    // Properties for the "Add New Beneficial Owner" form
+    selectedApplicantId = ''; // Stores the ID of the currently selected Applicant in the combobox (when Party to Agreement is 'Yes')
+    applicantOptions = []; // Options for the applicant combobox (populated from Apex)
+
+    // Object to hold the new Beneficial Owner record data
+    newBeneficialOwner = {}; // Initialize as empty object, actual structure set in resetNewBeneficialOwnerFields
+
+    // Flags for conditional rendering of Individual/Non-Individual BO fields and document input
+    isIndividualBO = true;
+    isNonIndividualBO = false;
+    showDocumentReference = false;
+    showPanButtons = false; // Controls visibility of "Verify PAN" and "PAN Adhar Linkage" buttons
+
+    // State for "Party to Agreement" logic
+    isPartyToAgreementYes = 'Yes'; // Default value for the radio group ('Yes' or 'No')
+    showApplicantSelection = false; // Controls visibility of the Applicant selection combobox
+
+
+    partyToAgreementOptions = [
+        { label: 'Yes', value: 'Yes' },
+        { label: 'No', value: 'No' },
+    ];
+
+    // Options for the Beneficial Owner Type radio group (Customer_Type__c) - disabled as dictated by Party to Agreement
+    boTypeOptions = [
+        { label: 'Individual', value: 'Individual' },
+        { label: 'Non Individual', value: 'Non Individual' },
+    ];
+
+    // Options for the OVD Individual BO picklist
+    // ovdOptions = [
+    //     { label: '--None--', value: null },
+    //     //{ label: 'OVD Required', value: OVD_REQUIRED_VALUE },
+    //     { label: 'OVD', value: OVD_REQUIRED_VALUE },
+    //     { label: 'Deemed OVD', value: 'Deemed OVD' },
+    //     { label: 'No OVD', value: 'No OVD' },
+
+    // ];
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445
+    ovdOptionAppIndividual = [
+        { label: 'Aadhar Card', value: 'Aadhar Card' },
+        { label: 'Driving license', value: 'Driving license' },
+        { label: 'Job card by NREGA', value: 'Job card by NREGA' },
+        { label: 'Letter by National Population register', value: 'Letter by National Population register' },
+        { label: 'Passport', value: 'Passport' },
+        { label: 'Voter ID', value: 'Voter ID' },
+    ];
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445
+    // Options for the OVD Non Individual BO picklist
+    ovdOptionNonIndividual = [
+        { label: 'Board resolution for authorising POA', value: 'Board resolution for authorising POA' },
+        { label: 'Constitution document', value: 'Constitution document' },
+        { label: 'OVD containing details of POA', value: 'OVD containing details of POA' },
+        { label: 'Registration Certificate', value: 'Registration Certificate' },
+    ];
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445
+    nationalityOptions = [
+        // { label: '--None--', value: null },
+        { label: 'Indian', value: 'Indian' },
+        // { label: 'Others', value: 'Others' },
+
+    ];
+
+
+    // Aggregate values for display and client-side validation
+    totalHoldingPercentage = 0;
+    currentBOCount = 0;
+
+    // UI state flags
+    isLoading = false;
+    isSaveDisabled = true; // Controls the "Add Beneficial Owner" button's disabled state
+
+    /**
+     * @Description Lifecycle hook: Called when the component is inserted into the DOM.
+     * Initiates fetching of initial data and sets the initial form state.
+     */
+    connectedCallback() {
+        this.fetchInitialData();
+        // Set the initial form state based on the default 'isPartyToAgreementYes'
+        this.setInitialBoFormState();
+        console.log('fresh changes');
+    }
+
+    //Added by Hariharan
+    get getSaveDisabled() {
+        console.log('entering into getSaveDisabled');
+        if (this.customerType == 'Individual') {
+            console.log('Individual');
+            if (this.panStatus == 'E' && this.aadharLinkageResponseObserved == true) {
+                console.log('setting false');
+                return false;
+            }
+            //Mohd Imtiaz Ali to show Beneficial Owner Button
+            else if (this.isPartyToAgreementYes === 'Yes' && this.applicantResult.Aadhar_PAN_Match__c && this.applicantResult.Aadhar_Pan_Linking__c) {
+                return false;
+            }
+            //Mohd Imtiaz Ali to show Beneficial Owner Button
+            else {
+                return true;
+            }
+        } else if (this.customerType == 'Non Individual') {
+            if (this.panStatus == 'E') {
+                return false;
+            } else {
+                return true;
+            }
+        } else {
+            return true;
+        }
+    }
+    //
+
+    @wire(getRecord, { recordId: '$recordId', fields: APPLICANT_FIELD })
+    getApplicantDetailsWire({ error, data }) {
+        if (data) {
+            this.loanApplicationId = data.fields.Loan__c.value;
+            console.log('loanApplicationId: ' + this.loanApplicationId);
+        } else if (error) {
+            this.isLoading = false;
+            this.showToast('Error', error.body.message, 'error');
+            console.error('Error fetching initial data:', error);
+        }
+    }
+
+
+    /**
+     * @Description Wires the getInitialFormData Apex method to fetch data reactively.
+     * Updates data properties when the recordId changes or data is refreshed.
+     */
+    @wire(getInitialFormData, { opportunityId: '$loanApplicationId' })
+    wiredInitialData(result) {
+        this.wiredFormDataResult = result;
+        const { error, data } = result;
+        if (data) {
+            this.isLoading = false;
+
+            // Process Applicant data for display tables and the Applicant combobox
+            this.primaryApplicantData = data.primaryApplicants.map(app => ({
+                ...app,
+                ApplicantNameLink: `/lightning/r/Applicant__c/${app.Id}/view`,
+                DOB_DOI_Display: (app.DOB_DOI__c || app.Date_of_Incorporation__c)
+
+            }));
+            this.coApplicantData = data.coApplicants.map(app => ({
+                ...app,
+                ApplicantNameLink: `/lightning/r/Applicant__c/${app.Id}/view`,
+                //DOB_DOI_Display: app.DOB_DOI__c || app.Date_of_Incorporation__c
+                DOB_DOI_Display: (app.DOB_DOI__c || app.Date_of_Incorporation__c)
+
+            }));
+            this.guarantorsData = data.guarantors.map(app => ({
+                ...app,
+                ApplicantNameLink: `/lightning/r/Applicant__c/${app.Id}/view`,
+                //DOB_DOI_Display: app.DOB_DOI__c || app.Date_of_Incorporation__c
+                DOB_DOI_Display: (app.DOB_DOI__c || app.Date_of_Incorporation__c)
+
+            }));
+
+            
+           
+            console.log('primaryApplicants: ' + JSON.stringify(data.primaryApplicants));
+
+            // Prepare options for the Applicant combobox
+            // this.applicantOptions = [
+            //     ...data.primaryApplicants.map(app => ({ label: app.Full_Name__c, value: app.Id })),
+            //     ...data.coApplicants.map(app => ({ label: app.Full_Name__c, value: app.Id }))
+            // ];
+            this.applicantOptions = [
+                ...data.primaryApplicants
+                    .filter(app => app.Customer_Type__c !== 'Individual' && app.Customer_Type__c !== 'Non Individual')
+                    .map(app => ({ label: app.Full_Name__c, value: app.Id })),
+                ...data.coApplicants
+                    .filter(app => app.Customer_Type__c === 'Individual' || app.Customer_Type__c === 'Non Individual')
+                    .map(app => ({ label: app.Full_Name__c, value: app.Id })),
+                ...data.guarantors
+                    .filter(app => app.Customer_Type__c === 'Individual' || app.Customer_Type__c === 'Non Individual')
+                    .map(app => ({ label: app.Full_Name__c, value: app.Id })),
+
+  
+            ];
+            this.applicantOptions.sort((a, b) => a.label.localeCompare(b.label));
+            console.log('this.applicantOptions @@:' + JSON.stringify(this.applicantOptions));
+             console.log('Guarantors:', JSON.stringify(data.guarantors));
+
+
+            console.log('existingBeneficialOwners: ' + JSON.stringify(data.existingBeneficialOwners));
+
+
+            // Process Beneficial Owner data for the display table
+            this.beneficialOwnerData = data.existingBeneficialOwners
+                .map(bo => ({
+                    ...bo,
+                    ApplicantName: bo.Applicant__r.Name,
+                    ApplicantNameLink: `/lightning/r/Applicant__c/${bo.Applicant__c}/view`,
+                    BONameDisplay: bo.Customer_Type__c === 'Individual' ?
+                        (bo.First_Name__c + ' ' + (bo.Middle_Name__c ? bo.Middle_Name__c + ' ' : '') + bo.Last_Name__c || '') :
+                        (bo.Applicant__r.Institution_Name__c || ''),
+                    BODateDisplay: bo.Customer_Type__c === 'Individual' ? bo.DOB_DOI__c : bo.Date_of_Incorporation_DOB__c,
+                    // BODateDisplay: bo.Customer_Type__c === 'Individual'
+                    // ? (bo.DOB_DOI__c ? bo.DOB_DOI__c.toString() : '')
+                    // : bo.Date_of_Incorporation_DOB__c,
+
+
+                    ApplicantFullName: bo.Full_Name__c
+                }));
+
+
+
+            this.totalHoldingPercentage = data.totalHoldingPercentage;
+            this.currentBOCount = data.currentBOCount;
+            console.log('totalHoldingPercentage @@'+this.totalHoldingPercentage);
+            console.log('beneficialOwnerData:@@' + JSON.stringify(this.beneficialOwnerData));
+
+        } else if (error) {
+            this.isLoading = false;
+            this.showToast('Error', error.body.message, 'error');
+            console.error('Error fetching initial data:', error);
+        }
+    }
+
+
+    /**
+     * @Description Initiates the loading state. The actual data fetching is handled by @wire.
+     */
+    async fetchInitialData() {
+        this.isLoading = true;
+    }
+
+    /**
+     * @Description Sets the initial state and visibility of the BO form based on "Party to Agreement" selection.
+     * This method is crucial for dictating the form's behavior (auto-populate vs. manual entry).
+     */
+    @api
+    async setInitialBoFormState() {
+        this.resetNewBeneficialOwnerFields(); // Always reset fields first to ensure clean state
+
+        if (this.isPartyToAgreementYes === 'Yes') {
+            this.customerType = 'Non Individual';
+            //showing default section
+            this.isNonIndividualBO = true;
+
+            //hiding other sections        
+            this.isIndividualBO = false;
+            this.panResponseObserved = false;
+            this.aadharLinkageResponseObserved = false;
+
+            //Enabling Button
+            this.disableApplicantSelection = false;
+
+            //disabling all buttons and bring them to init stage            
+            this.disableCustomerTypeSelection = true;
+            this.disablePanAadharButton = true;
+            this.disablePanButton = true;
+            this.isSaveDisabled = true;
+
+            //disabling all fields
+            this.disableAllFields = true;
+            this.disablePanAfterVerified = true;
+            this.disableAadharAfterVerified = true;
+
+            //Clearing field values
+            this.selectedApplicantId = null;
+
+        } else { // 'No'           
+            this.customerType = 'Individual';
+            //showing default section
+            this.isIndividualBO = true;
+
+            //hiding other sections     
+            this.isNonIndividualBO = false;
+            this.panResponseObserved = false;
+            this.aadharLinkageResponseObserved = false;
+
+            //Enabling Button
+            this.disableCustomerTypeSelection = false;
+
+            //disabling all buttons and bring them to init stage       
+            this.disableApplicantSelection = true;
+            this.disablePanAadharButton = true;
+            this.disablePanButton = true;
+            this.isSaveDisabled = true;
+
+            //enabling all fields
+            this.disableAllFields = false;
+            this.disablePanAfterVerified = false;
+            this.disableAadharAfterVerified = false;
+
+            //Clearing field values
+            this.selectedApplicantId = null;
+        }
+        // Force reactivity for the newBeneficialOwner object and clear non-relevant fields        
+        this.clearNonRelevantBOFields();
+        //this.validateForm(); // Validate initial state
+    }
+
+    /**
+     * @Description Handles the change event for the "Party to Agreement?" radio group.
+     * Resets the form and updates its structure based on the new selection.
+     * @param {Event} event The change event.
+     */
+    handlePartyToAgreementChange(event) {
+        this.isPartyToAgreementYes = event.detail.value;
+        console.log('getting loan app Id: ' + this.loanApplicationId);
+        this.setInitialBoFormState(); // Configure form based on new Party to Agreement selection
+
+        //Modified By Mohd Imtiaz Ali 26-07-2025
+        if (this.isPartyToAgreementYes === 'No') {
+            this.showDetails = false;
+        }
+        //Modified By Mohd Imtiaz Ali 26-07-2025
+
+    }
+
+    handleBoSaved(event) {
+    const updatedHolding = parseFloat(event.detail.updatedHoldingPercent);
+
+    if (!isNaN(updatedHolding)) {
+        const newTotal = this.totalHoldingPercentage - this.percentageOfHolding + updatedHolding;
+
+            // Only update and dispatch success if newTotal is valid
+            this.totalHoldingPercentage = newTotal;
+            this.percentageOfHolding = updatedHolding;
+
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: "Success",
+                    message: "Beneficial Owner saved successfully.",
+                    variant: "success"
+                })
+            );
+        
+    }
+    return refreshApex(this.wiredFormDataResult);
+}
+
+    /**
+     * @Description Handles the change event from the Applicant selection combobox (when Party to Agreement is 'Yes').
+     * Fetches details of the selected Applicant for auto-population.
+     * @param {Event} event The change event.
+     */
+    handleApplicantChange(event) {
+        this.selectedApplicantId = event.detail.value;
+
+        if (this.selectedApplicantId) {
+            this.fetchApplicantDetails(this.selectedApplicantId);
+            console.log('getting Applicant Id: ' + this.selectedApplicantId);
+        } else {
+            // If no applicant is selected from combobox, clear all BO form fields
+            this.resetNewBeneficialOwnerFields();
+            this.validateForm();
+        }
+        console.log('getting Applicant Id: ' + this.selectedApplicantId);
+
+    }
+
+    /**
+     * @Description Fetches the details of a specific Applicant from Apex for auto-population.
+     * This is called when an applicant is selected from the combobox (Party to Agreement = 'Yes').
+     * @param {String} applicantId The ID of the Applicant to fetch.
+     */
+    async fetchApplicantDetails(applicantId) {
+        try {
+            //Modified By Mohd Imtiaz Ali 19-07-2025
+            this.isLoading = true;
+            const applicant = await getApplicantDetails({ applicantId: applicantId });
+            console.log('Applicant details:', JSON.stringify(applicant));
+            /* CLLXP-1106*/
+            if (applicant) {
+                this.applicantResult = applicant;
+                console.log('fetchApplicantDetails  this.showDetails---> ', JSON.stringify(this.applicantResult));
+
+                this.showDetails =
+                    this.isPartyToAgreementYes === 'Yes' &&
+                    applicant.Aadhar_Pan_Linking__c === true &&
+                    applicant.Aadhar_PAN_Match__c === true &&
+                    applicant.Customer_Type__c === 'Individual'
+            }
+            console.log('fetchApplicantDetails  this.showDetails---> @@ ', this.showDetails);
+            //Modified By Mohd Imtiaz Ali 19-07-2025
+            console.log('dateOfIncorporation' + applicant.DOB_DOI__c)
+            if (applicant) {
+                console.log('applicantID' + applicantId)
+                //Added by Hariharan
+                //Showing sections based on Applicant's Customer Type
+                if (applicant.Customer_Type__c == 'Individual') {
+                    this.isIndividualBO = true;
+                    this.isNonIndividualBO = false;
+
+                    //Populating field values
+                    //Individual-specific fields (auto-populated from Applicant)
+                    this.firstName = applicant.First_Name__c;
+                    this.middleName = applicant.Middle_Name__c;
+                    this.lastName = applicant.Last_Name__c;
+                    this.dateOfBirth = applicant.DOB_DOI__c;
+                    
+                    this.spouseName = applicant.Spouse_Name__c;
+                    this.aadharNumber = applicant.Aadhaar_No_last_4_digits__c;
+                    this.nationality = applicant.Nationality__c;
+                    this.designation = applicant.Designation__c;
+                    // this.ovdIndividualBO = applicant.OVD_Status__c; //Added by Vaibhav
+                    this.ovdOptionNonIndividual = null;
+                    this.ovdAppIndividualBO = null;
+                    console.log('dateOfBirth 607:' + this.dateOfBirth);
+                    // Reset OVD picklist on new applicant selection                      
+                } else {
+                    this.isIndividualBO = false;
+                    this.isNonIndividualBO = true;
+
+                    // Non-Individual-specific fields (auto-populated from Applicant)
+                    this.institutionName = applicant.Company_Name__c;
+                    //console.log('Company Name'+this.institutionName)
+                    //this.designation = applicant.Designation__c;
+                    this.dateOfIncorporation = applicant.DOB_DOI__c;
+                    this.officeAddress = applicant.Office_Business_Address__c;
+                    // this.ovdIndividualBO = applicant.OVD_Status__c;  Added by Vaibhav 20/07/25
+                    console.log('dateOfIncorporation' + applicant.DOB_DOI__c)
+                }
+
+                // Common fields (auto-populated from Applicant)
+                this.customerType = applicant.Customer_Type__c;
+                this.panStatus = applicant.PAN_Status__c;
+                this.panValue = applicant.PAN_Number__c;
+                this.partyToAgreement = applicant.Party_to_Agreement__c; // BO's own Party to Agreement
+                this.percentageOfHolding = applicant.Percentage_of_Holding__c; // Percentage of holding is NOT auto-populated
+
+
+                //Api fields
+                this.aadhaarSeedingStatus = applicant.Aadhaar_Seeding_Status__c;
+                this.nameVerificationStatus = applicant.Name_Verification_Status__c;
+                this.dobVerificationStatus = applicant.Date_Of_Birth_Verification_Status__c
+                //If PAN is already verified 
+                // disable Pan Number field and make it read-only
+                //disable Verify Pan button
+                // and show the Pan response section
+                if (this.panStatus == 'E') {
+                    this.disablePanAfterVerified = true;
+                    this.disablePanButton = true;
+                    this.panResponseObserved = true;
+                    this.isSaveDisabled = false;
+                }
+                //if not, otherwise
+                else {
+                    this.disablePanAfterVerified = false;
+                    this.disablePanButton = false;
+                    this.panResponseObserved = false;
+                }
+
+                //Enabling Aadhar field
+                this.disableAadharAfterVerified = false;
+
+                //Enabling Aadhar button if last 4 digitsa are already filled
+                if (this.customerType == 'Individual' && this.aadharNumber != null && this.aadharNumber.length == 4) {
+                    this.disablePanAadharButton = false;
+                } else {
+                    this.disablePanAadharButton = true;
+                }
+                //
+
+            } else {
+                this.showToast('Warning', 'No details found for the selected Applicant.', 'warning');
+                this.resetNewBeneficialOwnerFields(); // Clear form fields if no details found
+            }
+            //Modified By Mohd Imtiaz Ali 19-07-2025
+            if (this.showDetails) {
+                this.disableAadharAfterVerified = true;
+                this.disablePanAadharButton = true;
+            }
+            //Modified By Mohd Imtiaz Ali 19-07-2025
+        } catch (error) {
+            this.showToast('Error', error.body.message, 'error');
+            console.error('Error fetching applicant details:', error);
+            this.resetNewBeneficialOwnerFields(); // Reset form fields on error
+        } finally {
+            this.isLoading = false;
+            //this.validateForm(); // Re-validate after auto-population
+        }
+    }
+
+    /**
+     * @Description Handles the change event for the OVD Individual BO picklist.
+     * Controls the visibility of the Document_Reference__c field.
+     * @param {Event} event The change event.
+     */
+    handleOvdTypeChange(event) {
+        this.newBeneficialOwner.OVD_Individual_BO__c = event.detail.value;
+
+        // this.showDocumentReference = (event.detail.value === OVD_REQUIRED_VALUE);
+        // if (!this.showDocumentReference) {
+        //     this.newBeneficialOwner.DocumentUpload__c = null;
+        // }
+        this.validateForm();
+    }
+
+    handleOvdTypeChangeNon(event) {
+        this.newBeneficialOwner.OVD_Non_Individual_BO__c = event.detail.value;
+
+
+        // this.showDocumentReference = (event.detail.value === OVD_REQUIRED_VALUE);
+        // if (!this.showDocumentReference) {
+        //     this.newBeneficialOwner.DocumentUpload__c = null;
+        // }
+        this.validateForm();
+    }
+
+    /**
+     * @Description Generic handler for input field changes.
+     * Updates the corresponding field in the newBeneficialOwner object.
+     * @param {Event} event The input change event.
+     */
+    handleInputChange(event) {
+        const field = event.target.dataset.field;
+        let value = event.detail.value;
+
+        //Added  by Hariharan       
+        if (field == 'First_Name__c') {
+            this.firstName = value;
+            console.log(value);
+        } else if (field == 'Middle_Name__c') {
+            this.middleName = value;
+            console.log(value);
+        } else if (field == 'Last_Name__c') {
+            this.lastName = value;
+            console.log(value);
+        } else if (field == 'PAN_Number__c') {
+            this.panValue = value;
+
+            const panInput = this.template.querySelector('[data-field="PAN_Number__c"]');
+            
+                if (panInput) {
+                    const pan = this.panValue || '';
+                    const isIndividualCust = this.customerType === 'Individual';
+                    const isNotPartOfDeal = this.isPartyToAgreementYes === 'No';
+                    
+                    const isLengthValid = pan.length === 10;
+                    const isFirstFiveLetters = /^[A-Z]{5}/.test(pan.substring(0, 5));
+                    const isMiddleFourDigits = /^[0-9]{4}$/.test(pan.substring(5, 9));
+                    const isLastCharLetter = /^[A-Z]$/.test(pan.charAt(9));
+                    const isFourthCharP = pan.charAt(3).toUpperCase() === 'P';
+
+                    let errorMessage = '';
+
+                    if (!isLengthValid) {
+                        errorMessage = 'Please enter Valid PAN Number.';
+                    } else if (!isFirstFiveLetters) {
+                        errorMessage = 'First 5 characters of PAN must be uppercase letters.';
+                    } else if (!isMiddleFourDigits) {
+                        errorMessage = 'Characters 6 to 9 must be digits.';
+                    } else if (!isLastCharLetter) {
+                        errorMessage = 'Last character of PAN must be an uppercase letter.';
+                    } else if (!isIndividualCust && isFourthCharP) {
+                        errorMessage = 'For Non-Individual BO, 4th character of PAN cannot be "P".';
+                    } else if (isIndividualCust && isNotPartOfDeal && !isFourthCharP) {
+                        errorMessage = 'For Individual BO, 4th character of PAN must be "P".';
+                    }
+
+
+
+                    panInput.setCustomValidity(errorMessage);
+                    panInput.reportValidity();
+                }
+
+
+            console.log(value);
+
+            //this.disablePanButton = (this.panValue.length == 10) ? false : true;
+            console.log(value);
+        }
+         else if (field == 'Percentage_of_Holding__c') {
+            this.percentageOfHolding = value;  
+    const percentInput = this.template.querySelector('[data-field="Percentage_of_Holding__c"]');
+    
+    if (percentInput) {
+        const percentValue = parseFloat(value);
+        
+        // Only show error if the user has actually entered something
+        if (!isNaN(percentValue) && percentValue < 10) {
+            percentInput.setCustomValidity('Percentage of Holding must be at least 10%.');
+        } else {
+            percentInput.setCustomValidity('');
+        }
+        
+        percentInput.reportValidity();
+    }
+ 
+    console.log('Percentage of Holding:', value);   
+
+        }
+        else if (field == 'Aadhar_Number__c') {
+            this.aadharNumber = value;
+            //Party to agreement - Yes & applicant selected
+
+            const aadharInput = this.template.querySelector('[data-field="Aadhar_Number__c"]');
+            if (aadharInput) {
+                const isValidAadhar = /^\d{4}$/.test(this.aadharNumber); // 4 digits only
+
+                if (!isValidAadhar) {
+                    aadharInput.setCustomValidity('Aadhar Number must be exactly 4 digits.');
+                } else {
+                    aadharInput.setCustomValidity('');
+                }
+                aadharInput.reportValidity();
+            }
+            if ((this.verifyPanButtonClicked || this.panStatusApi == 'E') && this.aadharNumber.length == 4) {
+                this.disablePanAadharButton = false;
+            } else {
+                this.disablePanAadharButton = true;
+            }
+
+            console.log(value);
+        }if (field === 'DOB_DOI__c') {
+            this.dateOfBirth = value; // Always update dateOfBirth when the user selects a date
+
+            // Your existing validation logic here (age checks, customValidity, reportValidity)
+            // ...
+            const dobInput = this.template.querySelector('[data-field="DOB_DOI__c"]');
+                if (dobInput && this.customerType === 'Individual') {
+                    const today = new Date();
+                    const enteredDate = new Date(this.dateOfBirth);
+
+                    // Calculate age
+                    let age = today.getFullYear() - enteredDate.getFullYear();
+                    const monthDiff = today.getMonth() - enteredDate.getMonth();
+                    const dayDiff = today.getDate() - enteredDate.getDate();
+                    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+                        age--;
+                    }
+
+                    // Boolean flags
+                    const isIndividualCust = this.customerType === 'Individual';
+                    const isAgeBelow21 = age < 21;
+                    const isAgeAbove70 = age > 70;
+
+                    let errorMessage = '';
+
+                    if (isIndividualCust && isAgeBelow21) {
+                        errorMessage = 'Beneficial Owner must be at least 21 years old.';
+                    } else if (isIndividualCust && isAgeAbove70) {
+                        errorMessage = 'Beneficial Owner age cannot exceed 70 years for Individual customers.';
+                    }
+
+                    dobInput.setCustomValidity(errorMessage);
+                    dobInput.reportValidity();
+                }
+            console.log(value);
+        }
+ else if (field == 'Spouse_Name__c') {
+            this.spouseName = value;
+
+            console.log(value);
+            // Added by Vaibhav 20/07/2025
+            // } else if (field == 'OVD_Status__c') { 
+            //     this.ovdIndividualBO = value;
+
+            //     console.log(value);
+        } else if (field == 'OVD_Individual_BO__c') {
+            this.ovdAppIndividualBO = value;
+
+            console.log(value);
+        } else if (field == 'OVD_Non_Individual_BO__c') {
+            this.ovdNonIndividualBO = value;
+
+            console.log(value);
+        } else if (field == 'Nationality__c') {
+            this.nationality = value;
+
+            console.log(value);
+        } else if (field == 'Office_Business_Address__c') {
+            this.officeAddress = value;
+
+            console.log(value);
+        } else if (field == 'Institution_Name__c') {
+            this.institutionName = value;
+            //this.disablePanAadharButton = (this.aadharNumber.length == 4) ? false : true;
+            console.log(value);
+        } else if (field == 'Designation__c') {
+            this.designation = value;
+            //this.disablePanAadharButton = (this.aadharNumber.length == 4) ? false : true;
+            console.log(value);
+        } else if (field == 'Date_of_Incorporation__c') {
+            this.dateOfIncorporation = value;
+            //this.disablePanAadharButton = (this.aadharNumber.length == 4) ? false : true;
+            console.log(value);
+        }
+        console.log('Inside this.dateOfIncorporation ', this.dateOfIncorporation);
+        if (this.customerType == 'Individual') {
+            if (this.firstName != null && this.lastName != null && this.dateOfBirth != null && this.panValue != null && this.panValue.length == 10 && this.panStatusApi != 'E' && this.isPartyToAgreementYes == 'No') {
+                this.disablePanButton = false;
+            } else {
+                this.disablePanButton = true;
+            }
+        } else {
+            if (this.institutionName != null && this.dateOfBirth != null && this.panValue != null && this.panValue.length == 10 && this.panStatusApi != 'E' && this.isPartyToAgreementYes == 'No') {
+                this.disablePanButton = false;
+                console.log('Inside Data');
+            } else {
+                this.disablePanButton = true;
+                console.log('elase Inside Data');
+            }
+
+            if ((this.panStatusApi == 'E' || this.verifyPanButtonClicked == true) && this.percentageOfHolding != null) {
+                this.isSaveDisabled = false;
+            } else {
+                this.isSaveDisabled = true;
+            }
+        }
+        //
+
+        // if (field === 'Percentage_of_Holding__c' && typeof value === 'string') {
+        //     value = parseFloat(value);
+        // }
+
+        // this.newBeneficialOwner = { ...this.newBeneficialOwner, [field]: value };
+        // FIX: Replaced String.isNotBlank with JS equivalent
+        //this.showPanButtons = (this.newBeneficialOwner.PAN_Number__c && this.newBeneficialOwner.PAN_Number__c.trim().length > 0);
+        // this.validateForm();
+    }
+
+
+    /**
+     * @Description Performs client-side validation on the form fields.
+     * Checks for required fields and minimum percentage holding.
+     * @returns {Boolean} True if the form is valid, false otherwise.
+     */
+    validateForm() {
+        const inputElements = this.template.querySelectorAll('lightning-input, lightning-combobox');
+        let allValid = true;
+
+        for (let i = 0; i < inputElements.length; i++) {
+            const inputCmp = inputElements[i];
+            // Only validate visible elements that are required or have standard validation rules
+            // Important: check if inputCmp.reportValidity is a function to avoid errors on disabled/hidden elements
+            if (inputCmp.checkValidity && inputCmp.reportValidity) {
+                if (!inputCmp.checkValidity()) {
+                    allValid = false;
+                }
+            }
+        }
+
+        // if(this.firstName == null || this.lastName == null || this.dateOfBirth == null || ){
+
+        // }
+
+        //Custom validation for Percentage_of_Holding__c
+        // const percentInput = this.template.querySelector('[data-field="Percentage_of_Holding__c"]');
+        // if (percentInput) {
+        //     if (this.percentageOfHolding === undefined ||
+        //         this.percentageOfHolding === null ||
+        //         this.percentageOfHolding < 10) {
+        //         allValid = false;
+        //         percentInput.setCustomValidity('Percentage of Holding must be at least 10%.');
+        //         percentInput.reportValidity();
+        //     } else {
+        //         percentInput.setCustomValidity('');
+        //         percentInput.reportValidity();
+        //     }
+        // }
+
+        // OVD Document Reference validation (only for Individual BOs if OVD Required is selected)
+        // Added by Vaibhav Date -20/07/2022 CLLXP-445
+        // const docRefInput = this.template.querySelector('[data-field="Document_Reference__c"]');
+        // if (this.isIndividualBO && this.showDocumentReference && docRefInput) {
+        //     // FIX: Replaced String.isBlank with JS equivalent
+        //     if (!(this.newBeneficialOwner.Document_Reference__c && this.newBeneficialOwner.Document_Reference__c.trim().length > 0)) {
+        //         allValid = false;
+        //         docRefInput.setCustomValidity('Document Reference is required when OVD Individual BO is \'OVD Required\'.');
+        //         docRefInput.reportValidity();
+        //     } else {
+        //         docRefInput.setCustomValidity('');
+        //         docRefInput.reportValidity();
+        //     }
+        // }
+
+        // Adhaar Card validation (only for Individual BOs)
+        const adhaarCard = this.template.querySelector('[data-field="aadharNumber"]');
+        if (this.isIndividualBO && adhaarCard) {
+            const ADHAAR_CARD_REGEX = new RegExp(/^([1-9]){1}([0-9]){11}?$/);
+            // FIX: Replaced String.isBlank with JS equivalent
+            if (!adhaarCard.match(ADHAAR_CARD_REGEX)) {
+                allValid = false;
+                adhaarCard.setCustomValidity('Please enter valid Adhaar Number!');
+                adhaarCard.reportValidity();
+            } else {
+                adhaarCard.setCustomValidity('');
+                adhaarCard.reportValidity();
+            }
+        }
+
+        // Applicant selection validation (only when Party to Agreement is 'Yes')
+        const applicantSelectCmp = this.template.querySelector('lightning-combobox[name="applicantSelection"]');
+        if (this.isPartyToAgreementYes === 'Yes' && applicantSelectCmp) {
+            if (!this.selectedApplicantId) {
+                allValid = false;
+                applicantSelectCmp.setCustomValidity('Please select an Applicant.');
+                applicantSelectCmp.reportValidity();
+            } else {
+                applicantSelectCmp.setCustomValidity('');
+                applicantSelectCmp.reportValidity();
+            }
+        }
+
+        // The save button is disabled if not all fields are valid
+        //this.isSaveDisabled = !allValid;
+        // if (this.panResponseObserved == true) {
+        //     this.isSaveDisabled = !allValid;
+        // } else {
+        //     this.isSaveDisabled = true;
+        // }
+        return allValid;
+    }
+
+    /**
+     * @Description Clears fields that are not relevant to the currently selected Beneficial Owner Type.
+     * This prevents saving data to incorrect fields when switching types.
+     */
+    clearNonRelevantBOFields() {
+
+        // if (this.isIndividualBO) {
+        // Clear Non-Individual specific fields
+        this.institutionName = null;
+        this.designation = null;
+        this.dateOfIncorporation = null;
+        // } else if (this.isNonIndividualBO) {
+        // Clear Individual specific fields
+        this.firstName = null;
+        this.middleName = null;
+        this.lastName = null;
+        this.dateOfBirth = null;
+        this.spouseName = null;
+        this.ovdIndividualBO = null;
+        this.aadharNumber = null;
+        this.nationality = null;
+        this.ovdAppIndividualBO = null;
+        this.ovdNonIndividualBO = null;
+
+        //this.newBeneficialOwner.DocumentUpload__c = null;
+        // this.showDocumentReference = false;
+        // }
+    }
+
+    /**
+     * @Description Private handler for the "Add Beneficial Owner" button click.
+     * It calls the public `saveBeneficialOwner` method.
+     */
+    get dynamicLabel(){
+        return this.isPartyToAgreementYes == 'Yes'? 'Add Beneficial Owner': 'Update Beneficial Owner';
+    }
+    async handleSaveButtonClick() {
+        console.log('Add beneficial Owner @@');
+        console.log('this.partyToAgreement @@'+this.isPartyToAgreementYes);
+       
+        if(this.isPartyToAgreementYes === 'Yes'){
+            const newPan = this.panValue?.trim().toUpperCase();
+            console.log('panValue @@'+this.panValue);
+            const isDuplicatePan = this.beneficialOwnerData?.some(bo => 
+                bo.PAN_Number__c?.toUpperCase() === newPan
+            );
+            const totalPercentage = this.totalHoldingPercentage;
+            
+            const newPercentage = Number(this.percentageOfHolding);
+            const currentBOCount = Number(this.currentBOCount);
+
+            
+            if ((totalPercentage + newPercentage) > 100) {
+                    this.showToast('Maximum holding reached', `Total holding percentage cannot exceed 100%. Current: ${totalPercentage}%, New: ${newPercentage}%`, 'error');
+                    return;
+                }
+
+                // Check for BO count
+            if (currentBOCount >= 10) {
+                    this.showToast('Maximum records reached', 'You cannot add more than 10 Beneficial Owners.', 'error');
+                    return;
+            }
+
+
+            //const countOfRecords = this.currentBOCount;
+            console.log('beneficialOwnerData @@945'+this.beneficialOwnerData);
+            console.log('newPan @@'+ newPan);
+            console.log('isDuplicatePan @@'+ isDuplicatePan);
+            
+            if(totalPercentage > 100){
+               this.showToast('Maximum holding reached', 'Total holding percentage cannot exceed 100%','error');
+               return;
+            }
+            // if(countOfRecords >= 10){
+            //     this.showToast('Maximum records reached', 'Total records exceed 10','error');
+            // }
+            // console.log('this.totalHoldingPercentage @@'+this.totalHoldingPercentage);
+
+            if(isDuplicatePan) {
+                this.showToast('Duplicate Pan Detected','This pan is already added in the Beneficial Owners table','error');
+                return;
+            }
+            
+
+            await this.save();
+            // refreshApex(this.beneficialOwnerData);
+            
+
+        }else if(this.isPartyToAgreementYes === 'No'){
+            await this.save();
+        }
+
+    }
+
+    /**
+     * @Description Public method to save a new Beneficial Owner record.
+     * This method can be called from a parent component or external JavaScript.
+     * It returns a Promise that resolves with the created BO record or rejects with an error.
+     * @returns {Promise<Object>} A Promise that resolves with the created Beneficial_Owner__c record.
+     */
+    //@api
+
+    async save() {
+        // Perform client-side validation
+        if (!this.validateForm()) {
+            const errorMessage = 'Please correct the errors in the form before saving.';
+            this.showToast('Error', errorMessage, 'error');
+            return;
+            //return Promise.reject(new Error(errorMessage));
+        }
+
+        this.isLoading = true;
+        try {
+            // Set the Applicant__c lookup based on Party to Agreement selection
+            if (this.isPartyToAgreementYes === 'No') {
+                this.newBeneficialOwner.Applicant__c = this.recordId; // Link to the current Applicant
+            } else { // 'Yes'
+                this.newBeneficialOwner.Applicant__c = this.selectedApplicantId; // Link to the selected Applicant
+            }
+
+            console.log('aadhar: ' + this.aadharNumber);
+            console.log('nationality: ' + this.nationality);
+            console.log('office address: ' + this.officeAddress);
+
+            //Common fields
+            this.newBeneficialOwner['PAN_Number__c'] = this.panValue;
+            this.newBeneficialOwner['Percentage_of_Holding__c'] = this.percentageOfHolding;
+            this.newBeneficialOwner['Customer_Type__c'] = this.customerType;
+
+            //Ind fields
+            this.newBeneficialOwner['First_Name__c'] = this.firstName;
+            this.newBeneficialOwner['Middle_Name__c'] = this.middleName;
+            this.newBeneficialOwner['Last_Name__c'] = this.lastName;
+            this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfBirth != null ? this.dateOfBirth : this.dateOfIncorporation;
+            this.newBeneficialOwner['Spouse_Name__c'] = this.spouseName;
+            this.newBeneficialOwner['Aadhar_Number__c'] = this.aadharNumber;
+            this.newBeneficialOwner['Nationality__c'] = this.nationality;
+            this.newBeneficialOwner['Office_Business_Address__c'] = this.officeAddress; // Added by Vaibhav Date -27/07/2025 CLLXP-445
+            
+            // this.newBeneficialOwner['OVD_Status__c'] = this.ovdIndividualBO; // Added by Vaibhav Date -19/07/2025 CLLXP-445
+            this.newBeneficialOwner['OVD_Individual_BO__c'] = this.ovdAppIndividualBO;
+
+
+            //Non-ind fields
+            this.newBeneficialOwner['Institution_Name__c'] = this.institutionName;
+            this.newBeneficialOwner['Designation__c'] = this.designation;
+            //this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfIncorporation;
+            this.newBeneficialOwner['OVD_Non_Individual_BO__c'] = this.ovdNonIndividualBO;
+
+            //Pan API
+            this.newBeneficialOwner['PAN_Status__c'] = this.panStatusApi;
+            this.newBeneficialOwner['Aadhaar_Seeding_Status__c'] = this.aadhaarSeedingStatus;
+            this.newBeneficialOwner['Name_Verification_Status__c'] = this.nameVerificationStatus;
+            this.newBeneficialOwner['Date_Of_Birth_Verification_Status__c'] = this.dobVerificationStatus;
+            this.newBeneficialOwner['PAN_Number_Verified__c'] = this.panStatusApi == 'E' ? true : false;
+
+            //Aadhar API
+            this.newBeneficialOwner['Aadhar_Pan_Linking__c'] = this.panAadharLinkedStatus;
+
+
+            if (this.beneficialOwnerId != null) {
+                this.newBeneficialOwner[ID_FIELD.fieldApiName] = this.beneficialOwnerId;
+                console.log('updating');
+            } else {
+                console.log('inserting');
+            }
+
+            // Call the Apex method to create the Beneficial Owner record 
+            upsertBoRecord({
+                newBo: this.newBeneficialOwner
+                //opportunityId: null
+                // currentApplicantId: this.recordId // Pass the current Applicant ID as context to Apex
+            }).then(async (result) => {
+                this.showToast('Success', 'Beneficial Owner created successfully!', 'success');
+
+                this.setInitialBoFormState(); // Re-initialize form state based on current Party to Agreement
+
+                // Refresh all data tables to show the newly created BO and updated aggregate counts
+                // await this.refreshAllData();
+                await refreshApex(this.wiredFormDataResult);
+                // this.dispatchEvent(new CustomEvent('bosuccess', {
+                //     detail: result
+                // }));
+                //return Promise.resolve(result);
+            }).catch((error) => {
+                const errorMessage = error.body && error.body.message ? error.body.message : 'An unknown error occurred.';
+                this.showToast('Error', errorMessage, 'error');
+                console.error('Error creating Beneficial Owner:', error);
+            });
+
+        } catch (error) {
+            const errorMessage = error.body && error.body.message ? error.body.message : 'An unknown error occurred.';
+            this.showToast('Error', errorMessage, 'error');
+            console.error('Error creating Beneficial Owner:', error);
+
+            // this.dispatchEvent(new CustomEvent('boerror', {
+            //     detail: errorMessage
+            // }));
+
+            // return Promise.reject(new Error(errorMessage));
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+
+    //Added by Hariharan
+    //This function will be called
+    //when clicking on Next
+    @api
+    validateInput() {
+        return false;
+    }
+    //
+
+    //Added by Hariharan for PAN verification
+    // handleVerifyPan() {
+
+    //     this.isLoading = true;
+    //     console.log('into saving @@');
+
+    //     this.newBeneficialOwner['First_Name__c'] = this.firstName;
+    //     this.newBeneficialOwner['Middle_Name__c'] = this.middleName;
+    //     this.newBeneficialOwner['Last_Name__c'] = this.lastName;
+    //     this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfBirth;
+    //     this.newBeneficialOwner['PAN_Number__c'] = this.panValue;
+    //     this.newBeneficialOwner['Applicant__c'] = (this.selectedApplicantId != null) ? this.selectedApplicantId : this.recordId;
+    //     console.log('recordId: ' + this.recordId);
+    //     console.log('Applicant__c: ' + this.newBeneficialOwner['Applicant__c']);
+    //     console.log('DOB_DOI__c: ' + this.newBeneficialOwner['DOB_DOI__c']);
+
+    //     console.log('values assigned');
+    //     // const totalPercentage = this.totalHoldingPercentage;
+    //     //     const countOfRecords = this.currentBOCount;
+          
+    //         if(totalPercentage > 100){
+    //            this.showToast('Maximum holding reached', 'Total holding percentage cannot exceed 100%','error');
+    //            return;
+    //         }
+    //         if(countOfRecords > 10){
+    //             this.showToast('Maximum records reached', 'Total records exceed 10','error');
+    //         }
+    //         console.log('this.totalHoldingPercentage @@'+this.totalHoldingPercentage);
+
+
+    //     createBeneficialOwner({ newBo: this.newBeneficialOwner, opportunityId: null })
+    //         .then(result => {
+    //             this.beneficialOwnerId = result.Id;
+    //             if(totalPercentage > 100){
+    //            this.showToast('Maximum holding reached', 'Total holding percentage cannot exceed 100%','error');
+    //            return;
+    //         }
+    //         if(countOfRecords > 10){
+    //             this.showToast('Maximum records reached', 'Total records exceed 10','error');
+    //         }
+    //         console.log('this.totalHoldingPercentage @@'+this.totalHoldingPercentage);
+
+    //             console.log('result @@:' + JSON.stringify(result));
+    //             console.log('new BO Id: ' + this.beneficialOwnerId);
+
+    //             this.insertCheckListMasterRecord(this.beneficialOwnerId);
+    //         })
+    //         .catch(error => {
+    //             console.error('error', error);
+    //             this.showToast('Error', error?.body?.message, 'error')
+    //             this.isLoading = false;
+    //         });
+    //     if (this.panStatus === 'Verified') {
+    //         this.isSaveDisabled = false
+    //     }
+    // }
+    handleVerifyPan() {
+    this.isLoading = true;
+    console.log('into saving @@');
+
+    // Check for holding percentage and record count before proceeding
+    
+
+    // Proceed with assigning values
+    this.newBeneficialOwner['First_Name__c'] = this.firstName;
+    this.newBeneficialOwner['Middle_Name__c'] = this.middleName;
+    this.newBeneficialOwner['Last_Name__c'] = this.lastName;
+    this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfBirth;
+    this.newBeneficialOwner['PAN_Number__c'] = this.panValue;
+    this.newBeneficialOwner['Applicant__c'] = (this.selectedApplicantId != null) ? this.selectedApplicantId : this.recordId;
+    this.newBeneficialOwner['Percentage_of_Holding__c'] = this.percentageOfHolding;
+    this.newBeneficialOwner['Aadhar_Number__c'] = this.aadharNumber;
+    this.newBeneficialOwner['Nationality__c'] = this.nationality;
+    this.newBeneficialOwner['Office_Business_Address__c'] = this.officeAddress;
+    this.newBeneficialOwner['Customer_Type__c'] = this.customerType;
+
+
+    const newPercentageOfHolding = Number(this.percentageOfHolding);
+    const totalHolding = Number(this.totalHoldingPercentage);
+    console.log('totalHolding @@ '+ totalHolding);
+    const percentageOfHoldingValidate =  newPercentageOfHolding + totalHolding;
+     console.log('newPercentageOfHolding @@'+ newPercentageOfHolding);
+    
+
+     console.log('percentageOfHoldingValidate @@'+ percentageOfHoldingValidate);
+
+    if (percentageOfHoldingValidate >= 100) {
+        this.showToast('Maximum holding reached', 'Total holding percentage cannot exceed 100%', 'error');
+        this.isLoading = false;
+        return;
+    }
+    console.log('currentBOCount 1169  @@'+this.currentBOCount);
+    if (this.currentBOCount >= 10) {
+        this.showToast('Maximum records reached', 'Maximum of 10 Beneficial Owners allowed.', 'error');
+        this.isLoading = false;
+        return;
+    }
+
+
+    // createBeneficialOwner({ newBo: this.newBeneficialOwner, opportunityId: null })
+    //     .then(result => {
+    //         this.beneficialOwnerId = result.Id;
+    //         console.log('result @@:' + JSON.stringify(result));
+    //         console.log('new BO Id: ' + this.beneficialOwnerId);
+    //         this.insertCheckListMasterRecord(this.beneficialOwnerId);
+    //         //refresh datatable on clicking on verify pan
+    //         return refreshApex(this.wiredInitialData);
+            
+            
+
+    //         // Enable save button only if PAN is verified
+    //         if (this.panStatus === 'Verified') {
+    //             this.isSaveDisabled = false;
+    //         }
+    //     })
+    //     .catch(error => {
+    //         console.error('error', error);
+    //         this.showToast('Error', error?.body?.message, 'error');
+    //     })
+        // .finally(() => {
+        //     this.isLoading = false;
+        // });
+        createBeneficialOwner({ newBo: this.newBeneficialOwner, opportunityId: null })
+    .then(result => {
+        this.beneficialOwnerId = result.Id;
+        console.log('result @@'+JSON.stringify(result));
+        this.insertCheckListMasterRecord(this.beneficialOwnerId);
+ 
+        return refreshApex(this.wiredFormDataResult);
+    })
+    
+    .catch(error => {
+        console.error('Error:', error);
+        this.showToast('Error', error?.body?.message || 'An error occurred.', 'error');
+        this.isLoading = false;
+    })
+    .finally(() => {
+            this.isLoading = false;
+        });
+}
+
+
+
+
+    //Added by Hariharan
+    insertCheckListMasterRecord(beneficialOwnerId) {
+        console.log('creating int checklist for PAN');
+        createIntegrationChecklistRecordforBO({ recordId: beneficialOwnerId })
+            .then(() => {
+                console.log('calling main api');
+                this.callPanVarificationAPI(beneficialOwnerId);
+            })
+            .catch(error => {
+                this.showToast('Error', error?.body?.message, 'error')
+                console.error('error', error);
+                this.isLoading = false;
+            });
+    }
+
+
+    //Added by Hariharan
+    callPanVarificationAPI(beneficialOwnerId) {
+        try {
+            console.log('calling callPanVarificationAPI');
+            verifyPanForBO({ recordId: beneficialOwnerId })
+                .then(result => {
+                    console.log('result of pan: ' + JSON.stringify(result));
+                    this.verifyPanButtonClicked = true;
+                    if (this.verifyPanButtonClicked == true && this.aadharNumber != null && this.aadharNumber.length == 4) {
+                        this.disablePanAadharButton = false;
+                    }
+                    if (this.customerType == 'Non-Individual' && this.percentageOfHolding != null) {
+                        this.isSaveDisabled = false;
+                    }
+                    this.disablePanAfterVerified = true;
+                    this.panResponseObserved = true;
+                    this.disablePanButton = true;
+
+                    if (result.status == 'Success') {
+                        let jsonResponse = JSON.parse(result.result);
+                        let apiStatus = jsonResponse?.panResponse?.response_Code;
+                        //this.dispatchEvent(new CustomEvent("saveinputs", { detail: { 'status': 'success', recordId: this.loanApplicationId,'redirectToNext':false , recordName : this.nameValue,isSuccess:true } }));
+                        if (apiStatus === '1') {
+                            this.isLoading = false;
+                            let panRecord = jsonResponse?.panResponse?.outputData?.[0]
+                            this.aadhaarSeedingStatus = panRecord?.seeding_status === 'Y' ? 'Yes' : 'No';
+                            this.panStatusApi = panRecord?.pan_status;
+                            this.dobVerificationStatus = panRecord?.dob === 'Y' ? 'Yes' : 'No';
+                            this.nameVerificationStatus = panRecord?.name === 'Y' ? 'Yes' : 'No';
+                            this.panResponseObserved = true;
+                            this.panVerifiedAttributes.dobVerified = this.dobVerificationStatus === 'Yes';
+                            this.panVerifiedAttributes.nameVerified = this.nameVerificationStatus === 'Yes';
+                            this.panVerifiedAttributes.isPanVerified = this.panStatusApi === 'E';
+                            if (this.panStatusApi === 'E') {
+                                this.panStatus = 'E';
+                            } else {
+                                this.panStatus = 'Not - Verified';
+                            }
+
+                            let beneficialOwner = {
+                                sobjectType: 'Beneficial_Owner__c',
+                                Id: this.beneficialOwnerId,
+                                PAN_Number__c: this.panValue,
+                                Date_Of_Birth_Verification_Status__c: this.dobVerificationStatus,
+                                Aadhaar_Seeding_Status__c: this.aadhaarSeedingStatus,
+                                Name_Verification_Status__c: this.nameVerificationStatus,
+                                PAN_Status__c: this.panStatusApi,
+                                PAN_Number__c: this.panNumber,
+                                PAN_Number_Verified__c: this.panVerifiedAttributes.isPanVerified,
+                                Loan_Application__c: this.loanApplicationId,
+                                Applicant__c: this.selectedApplicantId != null ? this.selectedApplicantId : this.recordId
+                            }
+
+                            if (this.dobVerificationStatus === 'Yes') {
+                                beneficialOwner.DOB_DOI__c = this.dateOfBirth;
+                            }
+                            if (this.nameVerificationStatus === 'Yes') {
+                                beneficialOwner.First_Name__c = this.firstName;
+                                beneficialOwner.Middle_Name__c = this.lastName;
+                                beneficialOwner.Last_Name__c = this.middleName;
+                                beneficialOwner.Constitution__c = this.selectedConstitutionType;
+                               // beneficialOwner.Institution_Name__c = this.institutionNameValue;
+                            }
+
+                            console.log('exitsing table data: ' + JSON.stringify(this.beneficialOwnerData));
+                            // refreshApex(this.beneficialOwnerData);
+                            //Update the BO record with the PAN details and create nsdl Pan Document from response
+                            this.updateBeneficialOwnerRecord(beneficialOwner, true, false);
+                            this.showToast('Success', 'Pan Verified!', 'success');
+                        } else {
+                            this.showPanApiDownErrors();
+                        }
+                        //this.refreshAllData();
+                    } else {
+                        this.showPanApiDownErrors();
+                    }
+                })
+                .catch(error => {
+                    console.log('eror on pan: ' + JSON.stringify(error));
+                    this.showPanApiDownErrors();
+                });
+        } catch (exception) {
+            this.showPanApiDownErrors();
+        }
+    }
+
+    
+
+    //Added by Hariharan
+    updateBeneficialOwnerRecord(beneficialOwner, createPanPDF, createAadharPDF) {
+        return updateBeneficialOwnerRecordOnEdit({ beneficialOwner: JSON.stringify(beneficialOwner) })
+            .then((result) => {
+                this.beneficialOwnerRecord = result;
+                console.log('updated!!!!!!!!!!!!!!!!!!!');
+                console.log('new Record @@:' + JSON.stringify(this.beneficialOwnerRecord));
+
+                console.log('trueeeeeeeeeeeeeeee');
+                if (createPanPDF == true) {
+                    console.log('creating PAN pdf');
+                    createBONsdlPanDocument({ beneficialOwnerRecord: this.beneficialOwnerRecord })
+                        .then(() => {
+                            console.log('Document Checklist for BO Pan created!!');
+                        })
+                        .catch((error) => {
+                            console.log('Error while creating document Checklist for BO Pan ' + JSON.stringify(error));
+                            this.showToast('Error', 'Something went wrong when creating PAN document. Contact the Administrator', 'error');
+                        }
+                        )
+                }
+                if (createAadharPDF == true) {
+                    console.log('creating Aadhar pdf');
+                    createBOPanAadharDocument({ beneficialOwnerRecord: this.beneficialOwnerRecord })
+                        .then(() => {
+                            console.log('Document Checklist for BO Pan Aadhar created!!');
+                        })
+                        .catch((error) => {
+                            console.log('Error while creating document Checklist for BO Pan ' + JSON.stringify(error));
+                            this.showToast('Error', 'Something went wrong when creating PAN document. Contact the Administrator', 'error');
+                        }
+                        )
+                }
+                return true
+            })
+            .catch(error => {
+                this.showToast('Error', error?.body?.message, 'error');
+                this.isLoading = false;
+                return false;
+            });
+    }
+
+    //Added by Hariharan
+
+    showPanApiDownErrors() {
+        this.isError = true;
+        this.isLoading = false;
+        this.panStatus = 'Pending';//Added By Parimal
+        this.isApiDown = true;
+        this.panResponseObserved = true; // Added By parimal       
+        this.aadhaarSeedingStatus = 'No';
+        this.dobVerificationStatus = 'No';
+        this.nameVerificationStatus = 'No';
+        this.panVerifiedAttributes.dobVerified = false;
+        this.panVerifiedAttributes.nameVerified = false;
+        this.panVerifiedAttributes.isPanVerified = false;
+        this.disablePanAfterVerified = true;
+        this.disablePanButton = true;
+        //this.dispatchEvent(new CustomEvent("saveinputs", { detail: { 'status': 'success', recordId: this.opportunityRecordId,'redirectToNext':false , recordName : this.nameValue,isSuccess:true } }));
+    }
+    //Added by Hariharan
+    get tooltipText() {
+        return this.panStatus === 'Verified' ? 'Pan is already verified' : 'Click to verify Pan';
+    }
+
+    handleCustomerTypeChange(event) {
+        let selectedValue = event.detail.value;
+        this.customerType = selectedValue;
+        if (selectedValue === 'Individual') {
+            this.isIndividualBO = true;
+            this.isNonIndividualBO = false;
+        } else {
+            this.isNonIndividualBO = true;
+            this.isIndividualBO = false;
+        }
+    }
+    //
+
+    /**
+     * @Description Mocks the "PAN Aadhaar Linkage" functionality.
+     */
+    //Added by Hariharan
+    handlePanAadharLinkage() {
+        console.log('verifying aadhar');
+        if (this.aadharNumber == null || this.aadharNumber.length > 4 || this.aadharNumber.length < 4) {
+            this.showToast('Error', 'Please enter the Last 4 digits of Aadhar number', 'error');
+            return;
+        }
+
+        //if Party to Agreement is Yes and Applicant's PAN is already verified
+        //before verifying Pan Aadhar Linkage create a BO record and verify Pan Aadhar Linkage
+        if (this.verifyPanButtonClicked == false) {
+            //Common fields
+            this.newBeneficialOwner['PAN_Number__c'] = this.panValue;
+            this.newBeneficialOwner['Percentage_of_Holding__c'] = this.percentageOfHolding;
+            this.newBeneficialOwner['Customer_Type__c'] = this.customerType;
+            this.newBeneficialOwner['Loan_Application__c'] = this.loanApplicationId;
+            this.newBeneficialOwner['Applicant__c'] = this.selectedApplicantId == null ? this.selectedApplicantId : this.recordId;
+
+            //Ind fields
+            this.newBeneficialOwner['First_Name__c'] = this.firstName;
+            this.newBeneficialOwner['Middle_Name__c'] = this.middleName;
+            this.newBeneficialOwner['Last_Name__c'] = this.lastName;
+            this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfBirth != null ? this.dateOfBirth : this.dateOfIncorporation;
+            this.newBeneficialOwner['Spouse_Name__c'] = this.spouseName;
+            this.newBeneficialOwner['Aadhar_Number__c'] = this.aadharNumber;
+            this.newBeneficialOwner['Nationality__c'] = this.nationality;
+            this.newBeneficialOwner['Office_Business_Address__c'] = this.officeAddress; // Added by Vaibhav Date -27/07/2025 CLLXP-445
+            //this.newBeneficialOwner['OVD_Status__c'] = this.ovdIndividualBO; // Added by Vaibhav Date - 19/07/2025 CLLXP-445
+            this.newBeneficialOwner['OVD_Individual_BO__c'] = this.ovdAppIndividualBO;
+            console.log('this.dateOfBirth: @@' + this.dateOfBirth);
+
+            //Non-ind fields
+            this.newBeneficialOwner['Institution_Name__c'] = this.institutionName;
+            this.newBeneficialOwner['Designation__c'] = this.designation;
+            //this.newBeneficialOwner['DOB_DOI__c'] = this.dateOfIncorporation;
+            this.newBeneficialOwner['OVD_Non_Individual_BO__c'] = this.ovdNonIndividualBO;
+            //console.log('this.dateOfIncorporation: @@' + this.dateOfIncorporation);
+
+
+            //Pan API
+            this.newBeneficialOwner['PAN_Status__c'] = this.panStatusApi;
+            this.newBeneficialOwner['Aadhaar_Seeding_Status__c'] = this.aadhaarSeedingStatus;
+            this.newBeneficialOwner['Name_Verification_Status__c'] = this.nameVerificationStatus;
+            this.newBeneficialOwner['Date_Of_Birth_Verification_Status__c'] = this.dobVerificationStatus;
+            this.newBeneficialOwner['PAN_Number_Verified__c'] = this.panStatusApi == 'E' ? true : false;
+
+            createBeneficialOwner({ newBo: this.newBeneficialOwner, opportunityId: null })
+                .then(result => {
+                    this.beneficialOwnerId = result.Id;
+                    console.log('new BO Id: ' + this.beneficialOwnerId);
+                    this.loading = true;
+                    this.verifyPanButtonClicked == true;
+                    console.log('resultpan @@:' + result);
+                    createIntegrationChecklistRecordForAadharPanLinkage({ recordId: this.beneficialOwnerId })
+                        .then((result) => {
+                            let intChecklistId = result;
+                            console.log('int checklist created');
+                            ValidateAndFetchAccessToken({ checklistId: intChecklistId })
+                                .then((response) => {
+                                    console.log('auth token success');
+                                    setTimeout(() => {
+                                        verifyAadharPANLinkage({ pan: this.panValue, beneficialOwnerId: this.beneficialOwnerId })
+                                            .then((resultFromApex) => {
+                                                console.log('verification done: ' + JSON.stringify(resultFromApex));
+                                                let result = JSON.parse(resultFromApex);
+                                                this.aadharLinkageResponseObserved = true;
+                                                this.loading = false;
+                                                if (result.retStatus == 'SUCCESS') {
+                                                    //disabling Aadhar field
+                                                    this.disableAadharAfterVerified = true;
+                                                    //disabling Pan Aadhar verify button
+                                                    this.disablePanAadharButton = true;
+                                                    this.panAadharLinkedStatus = result?.response?.data?.result?.valid;
+                                                    this.showToast('Success', 'Response received successfully', 'success');
+
+                                                    let beneficialOwner = {
+                                                        sobjectType: 'Beneficial_Owner__c',
+                                                        Id: this.beneficialOwnerId,
+                                                        // Aadhar_Pan_Linking__c: this.panAadharLinkedStatus == 'Yes' ? true : false,
+                                                        Aadhar_Pan_Linking__c: result?.response?.data?.result?.aadharLinked,
+                                                        Loan_Application__c: this.loanApplicationId
+                                                    }
+
+                                                    console.log('beneficialOwner.Aadhar_Pan_Linking__c: ' + beneficialOwner.Aadhar_Pan_Linking__c);
+                                                    console.log('updating after Aadhar reponse');
+                                                    console.log('loan id: ' + beneficialOwner);
+                                                    this.updateBeneficialOwnerRecord(beneficialOwner, false, true);
+
+                                                }
+                                                if (result.retStatus == 'FAILURE') {
+                                                    this.loading = false;
+                                                    //disabling Aadhar field
+                                                    this.disableAadharAfterVerified = true;
+                                                    //disabling Pan Aadhar verify button
+                                                    this.disablePanAadharButton = true;
+                                                    this.panAadharLinkedStatus = 'Error';
+                                                    let errorMessage = result.response.message != null ? result.response.message : result.sysErrorMessage;
+                                                    console.log('errorMessage: ' + errorMessage);
+                                                    this.showToast('Error', errorMessage, 'error');
+                                                }
+                                            })
+                                            .catch((error) => {
+                                                this.loading = false;
+                                                console.log('error during Pan Aadhar Linkage checking process: ' + JSON.stringify(error));
+                                                this.showToast('Error', error, 'error');
+                                            })
+                                    }, 5000)
+                                })
+                                .catch((error) => {
+                                    this.loading = false;
+                                    console.log('error while requesting access token: ' + JSON.stringify(error));
+                                    this.showToast('Error', 'You are not authorized request PAN aadhar process. Please check with administrator', 'error');
+                                })
+                        })
+                        .catch((error) => {
+                            this.loading = false;
+                            console.log('error creating int checklist for Pan Aadhar Linkage');
+                            this.showToast('Error', error?.body?.message, 'error');
+                        })
+                })
+                .catch(error => {
+                    console.error('error', JSON.stringify(error));
+                    this.showToast('Error', error?.body?.message, 'error')
+                    this.isLoading = false;
+                });
+
+
+        }
+        //If Pan is verified at BO level
+        else {
+            this.loading = true;
+            createIntegrationChecklistRecordForAadharPanLinkage({ recordId: this.beneficialOwnerId })
+                .then((result) => {
+                    let intChecklistId = result;
+                    console.log('int checklist created');
+                    ValidateAndFetchAccessToken({ checklistId: intChecklistId })
+                        .then((response) => {
+                            console.log('auth token success');
+                            setTimeout(() => {
+                                verifyAadharPANLinkage({ pan: this.panValue, beneficialOwnerId: this.beneficialOwnerId })
+                                    .then((resultFromApex) => {
+                                        console.log('verification done: ' + JSON.stringify(resultFromApex));
+                                        let result = JSON.parse(resultFromApex);
+
+                                        this.aadharLinkageResponseObserved = true;
+                                        this.loading = false;
+                                        if (result.retStatus == 'SUCCESS') {
+                                            //disabling Aadhar field
+                                            this.disableAadharAfterVerified = true;
+                                            //disabling Pan Aadhar verify button
+                                            this.disablePanAadharButton = true;
+                                            this.panAadharLinkedStatus = result.response.data.result.valid;
+                                            this.showToast('Success', 'Response received successfully', 'success');
+
+                                            let beneficialOwner = {
+                                                sobjectType: 'Beneficial_Owner__c',
+                                                Id: this.beneficialOwnerId,
+                                                Aadhar_Pan_Linking__c: this.panAadharLinkedStatus == 'Yes' ? true : false,
+                                                Loan_Application__c: this.loanApplicationId
+                                            }
+                                            console.log(' 2 updating after Aadhar reponse');
+                                            this.updateBeneficialOwnerRecord(beneficialOwner, false, true);
+                                        }
+                                        if (result.retStatus == 'FAILURE') {
+                                            this.loading = false;
+                                            //disabling Aadhar field
+                                            this.disableAadharAfterVerified = true;
+                                            //disabling Pan Aadhar verify button
+                                            this.disablePanAadharButton = true;
+                                            this.panAadharLinkedStatus = 'Error';
+                                            let errorMessage = result.response.message != null ? result.response.message : result.sysErrorMessage;
+                                            console.log('errorMessage: ' + errorMessage);
+                                            this.showToast('Error', errorMessage, 'error');
+                                        }
+                                    })
+                                    .catch((error) => {
+                                        this.loading = false;
+                                        console.log('error during Pan Aadhar Linkage checking process: ' + JSON.stringify(error));
+                                        this.showToast('Error', error, 'error');
+                                    })
+                            }, 5000)
+                        })
+                        .catch((error) => {
+                            this.loading = false;
+                            console.log('error while requesting access token: ' + JSON.stringify(error));
+                            this.showToast('Error', 'You are not authorized request PAN aadhar process. Please check with administrator', 'error');
+                        })
+                })
+                .catch((error) => {
+                    this.loading = false;
+                    console.log('error creating int checklist for Pan Aadhar Linkage');
+                    this.showToast('Error', error?.body?.message, 'error');
+                })
+        }
+
+
+    }
+    //
+
+    /**
+     * @Description Resets all fields of the newBeneficialOwner object to null/default values.
+     * This is a complete field reset, not a type-specific clear.
+     */
+    resetNewBeneficialOwnerFields() {
+        this.beneficialOwnerRecord = null;
+        this.beneficialOwnerId = null;
+
+        this.firstName = null;
+        this.middleName = null;
+        this.lastName = null;
+        this.dateOfBirth = null;
+        this.spouseName = null;
+        this.ovdIndividualBO = null;
+        this.ovdAppIndividualBO = null;
+        this.ovdNonIndividualBO = null;
+        this.aadharNumber = null;
+        this.nationality = null;
+        this.officeAddress = null;
+        this.customerType = null;
+        this.partyToAgreement = null;
+        this.percentageOfHolding = null;
+        this.institutionName = null;
+        this.designation = null;
+        this.dateOfIncorporation = null;
+
+        //Pan
+        this.panValue = null;
+        this.panStatusApi = null;
+        this.aadhaarSeedingStatus = null;
+        this.dobVerificationStatus = null;
+        this.nameVerificationStatus = null;
+        this.panStatus = null;
+        this.panResponseObserved = false;
+        this.disablePanAfterVerified = false;
+        this.disablePanButton = true;
+        this.verifyPanButtonClicked = false;
+
+        //Pan Aadhar
+        this.disableAadharAfterVerified = false;
+        this.panAadharLinkedStatus = null;
+        this.disablePanAadharButton = true;
+        this.aadharLinkageResponseObserved = false;
+
+        // this.showDocumentReference = false;
+        // this.showPanButtons = false;
+    }
+
+    /**
+     * @Description Resets the entire new BO form state, including selected applicant and form fields.
+     */
+    resetNewBeneficialOwner() {
+        this.resetNewBeneficialOwnerFields(); // Clear all fields
+        this.selectedApplicantId = ''; // Clear selected applicant in combobox
+        this.isSaveDisabled = true; // Disable save button
+        // Note: isPartyToAgreementYes and initial BO type are set by setInitialBoFormState
+    }
+
+    /**
+     * @Description Refreshes the wired data by re-calling the Apex method.
+     */
+    async refreshAllData() {
+        // Use a slight delay to ensure DML transaction commits before refresh
+        await new Promise(resolve => setTimeout(resolve, 100));
+        this.isLoading = true;
+        getInitialFormData({ applicantRecordId: this.recordId })
+            .then(data => {
+                this.wiredInitialData({ error: undefined, data: data });
+            })
+            .catch(error => {
+                this.wiredInitialData({ error: error, data: undefined });
+            });
+    }
+
+    /**
+     * @Description Dispatches a ShowToastEvent for user notifications.
+     * @param {String} title The title of the toast message.
+     * @param {String} message The body of the toast message.
+     * @param {String} variant The variant of the toast (e.g., 'success', 'error', 'warning').
+     */
+    showToast(title, message, variant) {
+        const event = new ShowToastEvent({
+            title: title,
+            message: message,
+            variant: variant,
+        });
+        this.dispatchEvent(event);
+    }
+
+    // Handle the Edit action in the datatable
+    // Added by Vaibhav Date -19/07/2025 CLLXP-445 - CLLXP-9386
+    async handleBoRowAction(event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const row = event.detail.row;
+        const actionName = event.detail.action.name;
+
+        console.log('Row ID:',);
+        console.log('Row Name:', row.Name);
+
+        if (actionName === 'edit') {
+            this.selectedBoId = row.Id;
+            this.showCustomEditModal = true;
+        }
+        else if (actionName === 'view') {
+            try {
+                await this[NavigationMixin.Navigate]({
+                    type: 'standard__recordPage',
+                    attributes: {
+                        recordId: row.Id,
+                        objectApiName: 'Beneficial_Owner__c',
+                        actionName: 'view'
+                    },
+                });
+            } catch (error) {
+                console.error('Error navigating to Beneficial Owner record:', error.message ? error.message : error);
+            }
+        }
+    }
+    async beneficialHandler(event){
+        const selectedBankRecordId = event?.detail?.selectedRows && event.detail.selectedRows[0].Id;
+        if (selectedBankRecordId) {
+            this._selectedBankRecordId = selectedBankRecordId;
+        }
+        this.BeneficialDetails = await getBeneficialOwnerById({ recordId: this._selectedBankRecordId });
+        this.displayBeneficialOwner = true;
+    }
+
+
+    handleCloseModal() {
+        this.showCustomEditModal = false;
+    }
+
+
+}
