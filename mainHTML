@@ -1,0 +1,938 @@
+<template>
+    <lightning-card>
+        <div class="slds-p-around_small">
+            <template if:true={loading}>
+                <lightning-spinner alternative-text="Loading" size="small"></lightning-spinner>
+            </template>
+            <lightning-layout horizontal-align="spread" multiple-rows="true">
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6">
+                    <lightning-radio-group name="partyToAgreement" label="Party to Agreement?" variant="label-inline"
+                        options={partyToAgreementOptions} value={isPartyToAgreementYes} type="button"
+                        onchange={handlePartyToAgreementChange} required></lightning-radio-group>
+                </lightning-layout-item>
+
+                <lightning-layout-item class="slds-text-align_right" size="6">
+
+                    <!-- Bypass for testing -->
+
+                    <!-- <lightning-button variant="brand" label="Verify PAN" onclick={handleVerifyPan}
+                        class="slds-m-right_small" disabled={disablePanButton}></lightning-button> -->
+
+                    <lightning-button variant="brand" label="PAN Aadhaar Linkage" onclick={handlePanAadharLinkage}
+                      class="slds-m-right_small"  disabled={disablePanAadharButton}></lightning-button>
+
+                    <lightning-button variant="brand" label={dynamicLabel} onclick={handleSaveButtonClick}
+                      class="slds-m-left_small slds-m-right_small"  disabled={getSaveDisabled}></lightning-button>
+
+                </lightning-layout-item>
+            </lightning-layout>
+
+
+            <lightning-layout horizontal-align="spread" multiple-rows="true">
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6">
+                    <!-- <template if:true={showApplicantSelection}> -->
+                    <lightning-combobox name="applicantSelection" style="width: 300px" label="Select Applicant"
+                        value={selectedApplicantId} placeholder="Select an Applicant" options={applicantOptions}
+                        onchange={handleApplicantChange} required
+                        disabled={disableApplicantSelection}></lightning-combobox>
+                    <!-- </template> -->
+                </lightning-layout-item>
+                <!-- Added size="7" small-device-size="7" medium-device-size="7"
+                          large-device-size="7" -->
+                <lightning-layout-item class="slds-p-left_small" size="5" small-device-size="5" medium-device-size="7"
+                          large-device-size="7">
+                    <!-- <template lwc:if={showBeneficialOwnerType}> -->
+                    <!-- <lightning-radio-group name="customerType" size="5" label="Customer Type" options={boTypeOptions}
+                        value={customerType} type="button" class="slds-p-top_small" onchange={handleCustomerTypeChange}
+                        disabled={disableCustomerTypeSelection}></lightning-radio-group> -->
+                    <!-- </template> -->
+                </lightning-layout-item>
+            </lightning-layout>
+
+            <!--lightning-layout horizontal-align="spread" multiple-rows="true">
+                <lightning-layout-item class="slds-form__item slds-no-space" size="12"
+                        large-device-size="6" medium-device-size="6" small-device-size="12">
+                </lightning-layout-item>
+            </lightning-layout>
+            <lightning-layout horizontal-align="spread" multiple-rows="true">
+                <lightning-layout-item class="slds-form__item slds-no-space" size="12"
+                        large-device-size="6" medium-device-size="6" small-device-size="12">
+                </lightning-layout-item>
+            </lightning-layout-->
+            <lightning-layout horizontal-align="spread" multiple-rows="true">
+                <template if:true={isIndividualBO}>
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="First Name" value={firstName}
+                                                disabled={disableAllFields} onchange={handleInputChange}
+                                                data-field="First_Name__c" required></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Middle Name" value={middleName}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Middle_Name__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Last Name" value={lastName}
+                                                disabled={disableAllFields} onchange={handleInputChange}
+                                                data-field="Last_Name__c" required></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Date of Birth" type="date" value={dateOfBirth}
+                                                onchange={handleInputChange} data-field="DOB_DOI__c"
+                                                disabled={disableAllFields} required></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Spouse Name" value={spouseName}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Spouse_Name__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="OVD Status" value={ovdIndividualBO}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="OVD_Status__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item> -->
+
+                      <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-combobox label="OVD Individual BO" value={ovdAppIndividualBO}
+                                                placeholder="Select OVD Type" options={ovdOptionAppIndividual}
+                                                onchange={handleOvdTypeChange}
+                                                data-field="OVD_Individual_BO__c"></lightning-combobox>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+
+                    <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Document Reference"
+                                                value={newBeneficialOwner.DocumentUpload__c}
+                                                onchange={handleInputChange} data-field="DocumentUpload__c"
+                                                required></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item> -->
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Aadhar last 4 digit number" value={aadharNumber}
+                                                onchange={handleInputChange} disabled={disableAadharAfterVerified} required
+                                                data-field="Aadhar_Number__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-combobox label="Nationality" value={nationality}
+                                            placeholder="Select Nationality" options={nationalityOptions}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Nationality__c"></lightning-combobox>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Designation" value={designation} required
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Designation__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Percentage of Holding" value={percentageOfHolding}
+                                                onchange={handleInputChange} required
+                                                data-field="Percentage_of_Holding__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Address" value={officeAddress}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Office_Business_Address__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="DIN" value={dinValue}
+                                                onchange={handleInputChange} 
+                                                data-field="DIN__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+                </template>
+
+                <!--  Non Individual -->
+                <template if:true={isNonIndividualBO}>
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Company Name" value={institutionName}
+                                                disabled={disableAllFields} onchange={handleInputChange}
+                                                data-field="Institution_Name__c" required></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Designation" value={designation}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Designation__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item> -->
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Date of Incorporation" type="date"
+                                                value={dateOfIncorporation} onchange={handleInputChange}
+                                                disabled={disableAllFields} data-field="DOB_DOI__c" required
+                                                ></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Percentage of Holding" value={percentageOfHolding}
+                                                onchange={handleInputChange} required
+                                                data-field="Percentage_of_Holding__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+              <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="OVD Status" value={ovdIndividualBO}
+                                                onchange={handleInputChange} disabled={disableAllFields} 
+                                                data-field="OVD_Status__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item> -->
+
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-input label="Office Address" value={officeAddress}
+                                                onchange={handleInputChange} disabled={disableAllFields}
+                                                data-field="Office_Business_Address__c"></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                        medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-grid slds-wrap">
+                                        <div
+                                            class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                            <lightning-combobox label="OVD Non Individual BO" value={ovdNonIndividualBO}
+                                                placeholder="Select OVD Type" options={ovdOptionNonIndividual}
+                                                onchange={handleOvdTypeChangeNon}
+                                                data-field="OVD_Non_Individual_BO__c"></lightning-combobox>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                </template>
+
+
+                <!-- Bypass for testing -->
+                <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                        <lightning-input label="PAN Number" value={panValue}
+                                            onchange={handleInputChange} data-field="PAN_Number__c"
+                                            disabled={disablePanAfterVerified} required></lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item> -->
+                
+                 <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+            medium-device-size="6" small-device-size="12">
+            <div class="slds-grid slds-size_1-of-1 label-stacked">
+              <span class="test-id__field-value slds-size_1-of-1">
+                <div class="slds-form-element">
+                  <div class="slds-grid slds-wrap">
+                    <div
+                      class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                      <lightning-layout vertical-align="end" class="slds-grid slds-wrap">
+                        <lightning-layout-item size="7" small-device-size="7" medium-device-size="7"
+                          large-device-size="7">
+                          <div class="slds-is-relative">
+                            <div
+                              class="slds-combobox__form-element slds-input-has-icon slds-input-has-icon_right PanHolder"
+                              role="none">
+                            <lightning-input label="PAN Number" value={panValue} maxlength="10" 
+                                            onchange={handleInputChange} data-field="PAN_Number__c" 
+                                            disabled={disablePanAfterVerified} required></lightning-input>
+                            </div>
+                          </div>
+                        </lightning-layout-item>
+                        <lightning-layout-item size="5" small-device-size="5" medium-device-size="5"
+                          large-device-size="5">
+
+                        <lightning-button variant="brand" label="Verify PAN" onclick={handleVerifyPan}
+                        class="slds-m-left_small" disabled={disablePanButton}></lightning-button>
+
+                    <!-- <lightning-button variant="brand" label="PAN Aadhaar Linkage" class="slds-m-left_small slds-m-right_small" onclick={handlePanAadharLinkage}
+                       disabled={disablePanAadharButton}></lightning-button> -->
+                        </lightning-layout-item>
+                      </lightning-layout>
+                    </div>
+                  </div>
+                </div>
+              </span>
+            </div>
+
+
+          </lightning-layout-item>
+
+
+                <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12"> -->
+                <!-- <template if:true={showPanButtons}> -->
+                <!-- <lightning-button variant="brand" label="Verify PAN"
+                                                onclick={handleVerifyPan} class="slds-m-right_small" disabled={disablePan}></lightning-button>
+                                            <lightning-button variant="brand" label="PAN Aadhaar Linkage"
+                                                onclick={handlePanAadharLinkage}  disabled={disablePanAadhar}></lightning-button> -->
+                <!-- </template> -->
+
+                <!-- </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item> -->
+
+                <!-- <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-2 slds-large-size_12-of-12">
+                                        <lightning-input label="PAN Status" value={newBeneficialOwner.PAN_Status__c}
+                                            onchange={handleInputChange} data-field="PAN_Status__c" disabled></lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item> -->
+            </lightning-layout>
+        </div>
+    </lightning-card>
+
+
+
+    <!-------------------------------------  Pan Verification Results  ------------------------------------------>
+    <lightning-card>
+        <template if:true={panResponseObserved}>
+            <div style="text-align: center;  padding: left 20px;">
+                <h3 class="slds-section__title slds-theme_shade">
+                    <span class="slds-truncate slds-var-p-horizontal_small" title="Pan Verification Results">Pan
+                        Verification Result</span>
+                </h3>
+            </div>
+        </template>
+        <lightning-layout horizontal-align="spread" multiple-rows="true">
+            <template if:true={panResponseObserved}>
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-clearfix">
+                                    <div class="slds-form-element__label">
+                                        PAN Verification Status
+                                    </div>
+                                </div>
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                        <lightning-input value={panStatus} variant="label-hidden" disabled="true">
+                                        </lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item>
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-clearfix">
+                                    <div class="slds-form-element__label">
+                                        Aadhaar Seeding Status
+                                    </div>
+                                </div>
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                        <lightning-input value={aadhaarSeedingStatus} variant="label-hidden"
+                                            disabled="true">
+                                        </lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item>
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-clearfix">
+                                    <div class="slds-form-element__label">
+                                        PAN Name Match
+                                    </div>
+                                </div>
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                        <lightning-input value={nameVerificationStatus} variant="label-hidden"
+                                            disabled="true">
+                                        </lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item>
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-clearfix">
+                                    <div class="slds-form-element__label">
+                                        PAN DOB Match
+                                    </div>
+                                </div>
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                        <lightning-input value={dobVerificationStatus} variant="label-hidden"
+                                            disabled="true">
+                                        </lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item>
+            </template>
+        </lightning-layout>
+    </lightning-card>
+    
+    <!-------------------------------------  Pan Verification Results  ------------------------------------------>
+
+
+        <!------------------------------------- Adhar Pan Linking Result  //Modified By Mohd Imtiaz Ali 19-07-2025------------------------------------------>
+     
+        <template if:true={showDetails}>
+
+             <div class="slds-section slds-is-open slds-var-p-horizontal_small">
+            <h3 class="slds-section__title slds-theme_shade">
+                <span class="slds-truncate slds-var-p-horizontal_small" title="Adhar PAN Linking">Adhar PAN Linking Result</span>
+            </h3>
+            <div class="summary slds-var-m-bottom_small">
+                <lightning-layout class="slds-form__row slds-var-m-top_xx-small">
+                    <!--PAN Adhar Linking Verified -->
+
+     
+             <!-- Aadhar Pan Linking-->
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6" medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-clearfix">
+                                        <div class="slds-form-element__label">Aadhar Pan Linking</div>
+                                    </div>
+                                    <div class="slds-grid slds-wrap">
+                                        <div class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                           <lightning-input type="checkbox" label="Aadhar Pan Linking" checked={applicantResult.Aadhar_Pan_Linking__c} disabled></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                     <!-- Aadhar PAN Match-->
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6" medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-clearfix">
+                                        <div class="slds-form-element__label">Aadhar PAN Match</div>
+                                    </div>
+                                    <div class="slds-grid slds-wrap">
+                                        <div class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                           <lightning-input type="checkbox" label="Aadhar PAN Match" checked={applicantResult.Aadhar_PAN_Match__c} disabled></lightning-input>
+                                        </div>
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                    
+                     <!-- Aadhar Last 4 Digit -->
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6" medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-clearfix">
+                                        <div class="slds-form-element__label">Aadhar Last 4 Digit</div>
+                                    </div>
+                                    <div class="slds-grid slds-wrap">
+                                       {applicantResult.Aadhaar_No_last_4_digits__c}
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+
+                      <!-- PAN Number -->
+                    <lightning-layout-item class="slds-form__item slds-no-space" size="12" large-device-size="6" medium-device-size="6" small-device-size="12">
+                        <div class="slds-grid slds-size_1-of-1 label-stacked">
+                            <span class="test-id__field-value slds-size_1-of-1">
+                                <div class="slds-form-element">
+                                    <div class="slds-clearfix">
+                                        <div class="slds-form-element__label">PAN Number</div>
+                                    </div>
+                                    <div class="slds-grid slds-wrap">
+                                       {applicantResult.PAN_Number__c}
+                                    </div>
+                                </div>
+                            </span>
+                        </div>
+                    </lightning-layout-item>
+ 
+     
+                </lightning-layout>
+            </div>
+        </div>
+
+          </template>
+          
+    <!-------------------------------------  Adhar Pan Linking Result //Modified By Mohd Imtiaz Ali 19-07-2025 ------------------------------------------>
+
+
+    <!-------------------------------------  Pan Aadhar Verification Results  ------------------------------------------>
+    <lightning-card>
+        <template if:true={aadharLinkageResponseObserved}>
+            <div style="text-align: center; padding: left 20px;">
+                <h3 class="slds-section__title slds-theme_shade">
+                    <span class="slds-truncate slds-var-p-horizontal_small" title="Pan Aadhar
+                        Linkage Result">Pan Aadhar
+                        Linkage Result</span>
+                </h3>
+            </div>
+        </template>
+        <lightning-layout horizontal-align="spread" multiple-rows="true">
+            <template if:true={aadharLinkageResponseObserved}>
+                <lightning-layout-item class="slds-form__item slds-no-space" size="6" large-device-size="6"
+                    medium-device-size="6" small-device-size="12">
+                    <div class="slds-grid slds-size_1-of-1 label-stacked">
+                        <span class="test-id__field-value slds-size_1-of-1">
+                            <div class="slds-form-element">
+                                <div class="slds-clearfix">
+                                    <div class="slds-form-element__label">
+                                        PAN Aadhar Linked
+                                    </div>
+                                </div>
+                                <div class="slds-grid slds-wrap">
+                                    <div
+                                        class="slds-form-element__control slds-col slds-size_1-of-1 slds-large-size_12-of-12 input-disabled">
+                                        <lightning-input value={panAadharLinkedStatus} variant="label-hidden"
+                                            disabled="true">
+                                        </lightning-input>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                </lightning-layout-item>
+            </template>
+        </lightning-layout>
+    </lightning-card>
+    <!-------------------------------------  Pan Aadhar Verification Results  ------------------------------------------>
+
+
+
+    <lightning-card title="Existing Beneficial Owners" icon-name="standard:people" class="slds-p-top_large">
+        <div class="slds-p-around_small">
+            <p class="slds-text-heading_small slds-p-vertical_small">
+                Total Holding Percentage: <span class="slds-text-heading_medium">{totalHoldingPercentage}%</span> /
+                Current BO Count: <span class="slds-text-heading_medium">{currentBOCount}</span>
+            </p>
+            <template if:true={beneficialOwnerData}>
+                <lightning-datatable key-field="Id" data={beneficialOwnerData} columns={beneficialOwnerColumns}
+                    onrowaction={handleBoRowAction}
+                    onrowselection={beneficialHandler}
+                    max-row-selection="1"></lightning-datatable>  <!-- Added by Aman - max-row-selection="1" -->
+                     <!-- Added by Aman - start -->
+                      <lightning-accordion allow-multiple-sections-open class="slds-wrap">
+                        <template lwc:if={displayBeneficialOwner}>
+                                <div>
+<template lwc:if={displayBeneficialOwner}>
+    <div style="padding: 16px; border: 1px solid #ccc; display: flex; flex-wrap: wrap; gap: 16px;">
+        <!-- Personal Information -->
+        <div style="flex: 1 1 30%;">
+            <strong>First Name:</strong>
+            <lightning-formatted-text value={BeneficialDetails.First_Name__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Middle Name:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Middle_Name__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Last Name:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Last_Name__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Date of Birth / Incorporation:</strong>
+            <lightning-formatted-text value={BeneficialDetails.DOB_DOI__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Spouse Name:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Spouse_Name__c}></lightning-formatted-text>
+        </div>
+
+        <!-- Identification -->
+        <div style="flex: 1 1 30%;">
+            <strong>PAN Number:</strong>
+            <lightning-formatted-text value={BeneficialDetails.PAN_Number__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>PAN Status:</strong>
+            <lightning-formatted-text value={BeneficialDetails.PAN_Status__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Aadhar-PAN Linking:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Aadhar_Pan_Linking__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Aadhaar Seeding Status:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Aadhaar_Seeding_Status__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>OVD Status:</strong>
+            <lightning-formatted-text value={BeneficialDetails.OVD_Status__c}></lightning-formatted-text>
+        </div>
+
+        <!-- Company Information -->
+        <div style="flex: 1 1 30%;">
+            <strong>Company Name:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Company_Name__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Office Business Address:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Office_Business_Address__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Designation:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Designation__c}></lightning-formatted-text>
+        </div>
+
+        <!-- Application Info -->
+        <div style="flex: 1 1 30%;">
+            <strong>Applicant:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Applicant__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Loan Application:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Loan_Application__c}></lightning-formatted-text>
+        </div>
+
+        <!-- Ownership -->
+        <div style="flex: 1 1 30%;">
+            <strong>Customer Type:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Customer_Type__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Percentage of Holding:</strong>
+            <lightning-formatted-text value={BeneficialDetails.Percentage_of_Holding__c}></lightning-formatted-text>
+        </div>
+        <div style="flex: 1 1 30%;">
+            <strong>Owner ID:</strong>
+            <lightning-formatted-text value={BeneficialDetails.OwnerId}></lightning-formatted-text>
+        </div>
+    </div>
+</template>
+
+    </div>
+</template>
+                      </lightning-accordion>
+
+                       <!-- Added by Aman - end -->
+            </template>
+            <template if:false={beneficialOwnerData}>
+                <p class="slds-p-around_small">No Beneficial Owners found for this Opportunity.</p>
+            </template>
+        </div>
+    </lightning-card>
+    <!-- Added by Vaibhav for Edit -->
+<!-- <lightning-card title="Beneficial Owner Detail Screen">
+        <div class="slds-p-horizontal_medium">
+            Add the beneficialOwnerDetails component here -->
+            <!-- <c-beneficial-owner-details-edit
+                record-id={recordId}>
+            </c-beneficial-owner-details-edit>
+        </div>
+    </lightning-card> -->
+
+
+
+
+   <template if:true={showCustomEditModal}>
+    <c-bo-edit-form
+       
+            record-id={selectedBoId}
+            total-holding-percentage={totalHoldingPercentage}
+            onclosemodal={handleCloseModal}
+            onbosaved={handleBoSaved}>
+        
+    </c-bo-edit-form>
+
+    </template>
+
+
+</template>
